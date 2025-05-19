@@ -24,6 +24,7 @@ from collections import defaultdict
 # ML Libraries
 from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, mean_squared_error, mean_absolute_error
+from sklearn.metrics import confusion_matrix, precision_recall_curve, roc_curve, roc_auc_score
 from sklearn.feature_selection import SelectFromModel, mutual_info_regression, SelectKBest, VarianceThreshold
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.decomposition import PCA
@@ -610,8 +611,11 @@ class ForexPrediction:
         # Output layer
         model.add(Dense(1, activation='sigmoid'))
         
-        # Compile the model
-        optimizer = Adam(learning_rate=hyperparams['learning_rate'])
+        # Compile the model with gradient clipping to prevent NaN losses
+        optimizer = Adam(
+            learning_rate=hyperparams['learning_rate'], 
+            clipnorm=1.0  # Add gradient clipping
+        )
         model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
         
         return model
@@ -636,16 +640,16 @@ class ForexPrediction:
         )(inputs, inputs)
         
         # Residual connection and normalization
-        x = layers.add([inputs, attention_output])
+        x = tf.keras.layers.add([inputs, attention_output])
         x = BatchNormalization()(x)
         
         # Feed forward network
-        ffn = Dense(hyperparams['hidden_units'], activation='relu')(x)
+        ffn = Dense(hyperparams['hidden_units'], activation='relu', kernel_initializer='he_normal')(x)
         ffn = Dropout(hyperparams['dropout_rate'])(ffn)
-        ffn = Dense(input_dim)(ffn)
+        ffn = Dense(input_dim, kernel_initializer='he_normal')(ffn)
         
         # Residual connection and normalization
-        x = layers.add([x, ffn])
+        x = tf.keras.layers.add([x, ffn])
         x = BatchNormalization()(x)
         
         # LSTM layers for sequence processing
@@ -655,11 +659,14 @@ class ForexPrediction:
         x = Dropout(hyperparams['dropout_rate'])(x)
         
         # Output
-        outputs = Dense(1, activation='sigmoid')(x)
+        outputs = Dense(1, activation='sigmoid', kernel_initializer='glorot_uniform')(x)
         
-        # Create and compile model
+        # Create and compile model with gradient clipping
         model = Model(inputs=inputs, outputs=outputs)
-        optimizer = Adam(learning_rate=hyperparams['learning_rate'])
+        optimizer = Adam(
+            learning_rate=hyperparams['learning_rate'],
+            clipnorm=1.0  # Add gradient clipping
+        )
         model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
         
         return model
@@ -718,6 +725,12 @@ class ForexPrediction:
                 # Prepare data for LSTM
                 X_train, y_train, scaler, feature_names = self.prepare_model_data(train_data, is_lstm=True)
                 
+                # Check for NaN values
+                if np.isnan(X_train).any() or np.isnan(y_train).any():
+                    logger.warning(f"NaN values detected in {pair} CNN-LSTM training data. Fixing...")
+                    X_train = np.nan_to_num(X_train)
+                    y_train = np.nan_to_num(y_train)
+                
                 # Split training and validation sets
                 val_size = int(len(X_train) * self.config['validation_size'])
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
@@ -729,11 +742,13 @@ class ForexPrediction:
                 model = self.build_cnn_lstm_model(input_shape)
                 
                 # Create model checkpoint callback
+                checkpoint_path = os.path.join(models_dir, f"{pair}_cnn_lstm_best.keras")
                 model_checkpoint = ModelCheckpoint(
-                    os.path.join(models_dir, f"{pair}_cnn_lstm_best.keras"),
+                    checkpoint_path,
                     save_best_only=True,
                     monitor='val_loss',
-                    mode='min'
+                    mode='min',
+                    verbose=1
                 )
                 
                 # Train the model
@@ -746,8 +761,10 @@ class ForexPrediction:
                     verbose=1
                 )
                 
-                # Load the best model
-                model = load_model(os.path.join(models_dir, f"{pair}_cnn_lstm_best.keras"))
+                # Save the final model if checkpoint didn't work
+                if not os.path.exists(checkpoint_path):
+                    logger.info(f"Saving final model for {pair} CNN-LSTM")
+                    model.save(checkpoint_path)
                 
                 # Store the model and scaler
                 self.models[f"{pair}_cnn_lstm"] = {
@@ -782,6 +799,12 @@ class ForexPrediction:
                 # Prepare data for TFT
                 X_train, y_train, scaler, feature_names = self.prepare_model_data(train_data, is_lstm=True)
                 
+                # Check for NaN values
+                if np.isnan(X_train).any() or np.isnan(y_train).any():
+                    logger.warning(f"NaN values detected in {pair} TFT training data. Fixing...")
+                    X_train = np.nan_to_num(X_train)
+                    y_train = np.nan_to_num(y_train)
+                
                 # Split training and validation sets
                 val_size = int(len(X_train) * self.config['validation_size'])
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
@@ -793,11 +816,13 @@ class ForexPrediction:
                 model = self.build_tft_model(input_dim)
                 
                 # Create model checkpoint callback
+                checkpoint_path = os.path.join(models_dir, f"{pair}_tft_best.keras")
                 model_checkpoint = ModelCheckpoint(
-                    os.path.join(models_dir, f"{pair}_tft_best.keras"),
+                    checkpoint_path,
                     save_best_only=True,
                     monitor='val_loss',
-                    mode='min'
+                    mode='min',
+                    verbose=1
                 )
                 
                 # Train the model
@@ -810,8 +835,10 @@ class ForexPrediction:
                     verbose=1
                 )
                 
-                # Load the best model
-                model = load_model(os.path.join(models_dir, f"{pair}_tft_best.keras"))
+                # Save the final model if checkpoint didn't work
+                if not os.path.exists(checkpoint_path):
+                    logger.info(f"Saving final model for {pair} TFT")
+                    model.save(checkpoint_path)
                 
                 # Store the model and scaler
                 self.models[f"{pair}_tft"] = {
@@ -846,6 +873,12 @@ class ForexPrediction:
                 # Prepare data for XGBoost
                 X_train, y_train, scaler, feature_names = self.prepare_model_data(train_data, is_lstm=False)
                 
+                # Check for NaN values
+                if np.isnan(X_train).any() or np.isnan(y_train).any():
+                    logger.warning(f"NaN values detected in {pair} XGBoost training data. Fixing...")
+                    X_train = np.nan_to_num(X_train)
+                    y_train = np.nan_to_num(y_train)
+                
                 # Split training and validation sets
                 val_size = int(len(X_train) * self.config['validation_size'])
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
@@ -858,6 +891,7 @@ class ForexPrediction:
                 model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
+                    # early_stopping_rounds=20,
                     verbose=1
                 )
                 
@@ -896,6 +930,12 @@ class ForexPrediction:
                 # Prepare data for LSTM
                 X_train, y_train, scaler, feature_names = self.prepare_model_data(train_data, is_lstm=True)
                 
+                # Check for NaN values
+                if np.isnan(X_train).any() or np.isnan(y_train).any():
+                    logger.warning("NaN values detected in Bagging CNN-LSTM training data. Fixing...")
+                    X_train = np.nan_to_num(X_train)
+                    y_train = np.nan_to_num(y_train)
+                
                 # Split training and validation sets
                 val_size = int(len(X_train) * self.config['validation_size'])
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
@@ -907,11 +947,13 @@ class ForexPrediction:
                 model = self.build_cnn_lstm_model(input_shape)
                 
                 # Create model checkpoint callback
+                checkpoint_path = os.path.join(models_dir, "Bagging_cnn_lstm_best.keras")
                 model_checkpoint = ModelCheckpoint(
-                    os.path.join(models_dir, "Bagging_cnn_lstm_best.keras"),
+                    checkpoint_path,
                     save_best_only=True,
                     monitor='val_loss',
-                    mode='min'
+                    mode='min',
+                    verbose=1
                 )
                 
                 # Train the model
@@ -924,19 +966,10 @@ class ForexPrediction:
                     verbose=1
                 )
                 
-                # Load the best model
-                # เพิ่มการตรวจสอบไฟล์และจัดการข้อผิดพลาด
-                model_path = os.path.join(models_dir, "Bagging_cnn_lstm_best.keras")
-                try:
-                    if os.path.exists(model_path):
-                        model = load_model(model_path)
-                        logger.info(f"Loaded best model from {model_path}")
-                    else:
-                        logger.warning(f"Best model file not found at {model_path}. Using last model state instead.")
-                        # ใช้โมเดลล่าสุดแทน (ไม่ต้องโหลดใหม่เพราะเรามีอยู่แล้วจากการฝึก)
-                except Exception as e:
-                    logger.warning(f"Error loading best model: {e}. Using last model state instead.")
-                    # ใช้โมเดลล่าสุดแทน (ไม่ต้องโหลดใหม่เพราะเรามีอยู่แล้วจากการฝึก)
+                # Save the final model if checkpoint didn't work
+                if not os.path.exists(checkpoint_path):
+                    logger.info("Saving final Bagging CNN-LSTM model")
+                    model.save(checkpoint_path)
                 
                 # Store the model and scaler
                 self.models["Bagging_cnn_lstm"] = {
@@ -971,6 +1004,12 @@ class ForexPrediction:
                 # Prepare data for TFT
                 X_train, y_train, scaler, feature_names = self.prepare_model_data(train_data, is_lstm=True)
                 
+                # Check for NaN values
+                if np.isnan(X_train).any() or np.isnan(y_train).any():
+                    logger.warning("NaN values detected in Bagging TFT training data. Fixing...")
+                    X_train = np.nan_to_num(X_train)
+                    y_train = np.nan_to_num(y_train)
+                
                 # Split training and validation sets
                 val_size = int(len(X_train) * self.config['validation_size'])
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
@@ -982,11 +1021,13 @@ class ForexPrediction:
                 model = self.build_tft_model(input_dim)
                 
                 # Create model checkpoint callback
+                checkpoint_path = os.path.join(models_dir, "Bagging_tft_best.keras")
                 model_checkpoint = ModelCheckpoint(
-                    os.path.join(models_dir, "Bagging_tft_best.keras"),
+                    checkpoint_path,
                     save_best_only=True,
                     monitor='val_loss',
-                    mode='min'
+                    mode='min',
+                    verbose=1
                 )
                 
                 # Train the model
@@ -999,8 +1040,9 @@ class ForexPrediction:
                     verbose=1
                 )
                 
-                # Load the best model
-                model = load_model(os.path.join(models_dir, "Bagging_tft_best.keras"))
+                # Save the final model regardless of checkpoint
+                logger.info("Saving final Bagging TFT model")
+                model.save(checkpoint_path)
                 
                 # Store the model and scaler
                 self.models["Bagging_tft"] = {
@@ -1035,6 +1077,12 @@ class ForexPrediction:
                 # Prepare data for XGBoost
                 X_train, y_train, scaler, feature_names = self.prepare_model_data(train_data, is_lstm=False)
                 
+                # Check for NaN values
+                if np.isnan(X_train).any() or np.isnan(y_train).any():
+                    logger.warning("NaN values detected in Bagging XGBoost training data. Fixing...")
+                    X_train = np.nan_to_num(X_train)
+                    y_train = np.nan_to_num(y_train)
+                
                 # Split training and validation sets
                 val_size = int(len(X_train) * self.config['validation_size'])
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
@@ -1047,7 +1095,7 @@ class ForexPrediction:
                 model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
-                    early_stopping_rounds=20,
+                    # early_stopping_rounds=20,
                     verbose=1
                 )
                 
@@ -1095,6 +1143,10 @@ class ForexPrediction:
                 # Prepare data for LSTM
                 X_train, y_train, _, _ = self.prepare_model_data(train_data, is_lstm=True)
                 
+                # Handle NaN values
+                X_train = np.nan_to_num(X_train)
+                y_train = np.nan_to_num(y_train)
+                
                 # Split training and validation sets
                 val_size = int(len(X_train) * self.config['validation_size'])
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
@@ -1136,6 +1188,10 @@ class ForexPrediction:
                 # Prepare data for TFT
                 X_train, y_train, _, _ = self.prepare_model_data(train_data, is_lstm=True)
                 
+                # Handle NaN values
+                X_train = np.nan_to_num(X_train)
+                y_train = np.nan_to_num(y_train)
+                
                 # Split training and validation sets
                 val_size = int(len(X_train) * self.config['validation_size'])
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
@@ -1176,6 +1232,10 @@ class ForexPrediction:
                 # Prepare data for XGBoost
                 X_train, y_train, _, _ = self.prepare_model_data(train_data, is_lstm=False)
                 
+                # Handle NaN values
+                X_train = np.nan_to_num(X_train)
+                y_train = np.nan_to_num(y_train)
+                
                 # Split training and validation sets
                 val_size = int(len(X_train) * self.config['validation_size'])
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
@@ -1201,7 +1261,7 @@ class ForexPrediction:
                 model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
-                    early_stopping_rounds=10,
+                    # early_stopping_rounds=10,
                     verbose=0
                 )
                 
@@ -1253,12 +1313,24 @@ class ForexPrediction:
                     # Prepare data for LSTM models
                     X_test, y_test, _, _ = self.prepare_model_data(test_data, is_lstm=True)
                     
+                    # Check and handle NaN values
+                    if np.isnan(X_test).any() or np.isnan(y_test).any():
+                        logger.warning(f"NaN values detected in {model_key} test data. Fixing...")
+                        X_test = np.nan_to_num(X_test)
+                        y_test = np.nan_to_num(y_test)
+                    
                     # Get predictions
                     y_pred_proba = model.predict(X_test)
                     y_pred = (y_pred_proba > 0.5).astype(int).flatten()
                 else:  # XGBoost
                     # Prepare data for XGBoost
                     X_test, y_test, _, _ = self.prepare_model_data(test_data, is_lstm=False)
+                    
+                    # Check and handle NaN values
+                    if np.isnan(X_test).any() or np.isnan(y_test).any():
+                        logger.warning(f"NaN values detected in {model_key} test data. Fixing...")
+                        X_test = np.nan_to_num(X_test)
+                        y_test = np.nan_to_num(y_test)
                     
                     # Get predictions
                     y_pred_proba = model.predict_proba(X_test)[:, 1]
@@ -1322,9 +1394,18 @@ class ForexPrediction:
         
         # Evaluate Bagging Models
         if self.config['use_bagging']:
-            # We need to evaluate the bagging model on each currency pair separately
+            # We need to evaluate the bagging model using the bagging test data instead
+            # of individual currency pair test data
+            bagging_test_data = self.bagging_data['test']
+            
+            # Extract data for each currency pair
             for pair in self.config['currency_pairs']:
-                test_data = self.selected_features[pair]['test']
+                # Filter bagging test data for this pair
+                pair_test_data = bagging_test_data[bagging_test_data['CurrencyPair'] == pair].copy()
+                
+                if pair_test_data.empty:
+                    logger.warning(f"No test data available for {pair} in the bagging dataset")
+                    continue
                 
                 # Evaluate each model type
                 for model_type in self.config['models_to_train']:
@@ -1340,19 +1421,47 @@ class ForexPrediction:
                     
                     # Generate predictions
                     if model_type in ['cnn_lstm', 'tft']:
-                        # Prepare data for LSTM models
-                        X_test, y_test, _, _ = self.prepare_model_data(test_data, is_lstm=True)
+                        # Prepare data for LSTM models - use bagging test data with the same features
+                        X_test, y_test, _, _ = self.prepare_model_data(pair_test_data, is_lstm=True)
+                        
+                        # Check and handle NaN values
+                        if np.isnan(X_test).any() or np.isnan(y_test).any():
+                            logger.warning(f"NaN values detected in {model_key} test data for {pair}. Fixing...")
+                            X_test = np.nan_to_num(X_test)
+                            y_test = np.nan_to_num(y_test)
+                        
+                        # Log shapes for debugging
+                        logger.info(f"Bagging {model_type} evaluation for {pair}: X_test shape = {X_test.shape}")
                         
                         # Get predictions
-                        y_pred_proba = model.predict(X_test)
-                        y_pred = (y_pred_proba > 0.5).astype(int).flatten()
+                        try:
+                            y_pred_proba = model.predict(X_test)
+                            y_pred = (y_pred_proba > 0.5).astype(int).flatten()
+                        except Exception as e:
+                            logger.error(f"Error making predictions with {model_key} on {pair}: {e}")
+                            
+                            # Skip this model evaluation
+                            continue
+                            
                     else:  # XGBoost
                         # Prepare data for XGBoost
-                        X_test, y_test, _, _ = self.prepare_model_data(test_data, is_lstm=False)
+                        X_test, y_test, _, _ = self.prepare_model_data(pair_test_data, is_lstm=False)
+                        
+                        # Check and handle NaN values
+                        if np.isnan(X_test).any() or np.isnan(y_test).any():
+                            logger.warning(f"NaN values detected in {model_key} test data for {pair}. Fixing...")
+                            X_test = np.nan_to_num(X_test)
+                            y_test = np.nan_to_num(y_test)
                         
                         # Get predictions
-                        y_pred_proba = model.predict_proba(X_test)[:, 1]
-                        y_pred = (y_pred_proba > 0.5).astype(int)
+                        try:
+                            y_pred_proba = model.predict_proba(X_test)[:, 1]
+                            y_pred = (y_pred_proba > 0.5).astype(int)
+                        except Exception as e:
+                            logger.error(f"Error making predictions with {model_key} on {pair}: {e}")
+                            
+                            # Skip this model evaluation
+                            continue
                     
                     # Calculate metrics
                     accuracy = accuracy_score(y_test, y_pred)
@@ -1363,7 +1472,8 @@ class ForexPrediction:
                     logger.info(f"Model {model_key} on {pair} test metrics: Accuracy={accuracy:.4f}, Precision={precision:.4f}, Recall={recall:.4f}, F1={f1:.4f}")
                     
                     # Generate trading signals and evaluate performance
-                    trading_performance = self.evaluate_trading_performance(pair, f"Bagging_{model_type}", y_test, y_pred, test_data)
+                    # Use individual currency pair test data for evaluation
+                    trading_performance = self.evaluate_trading_performance(pair, f"Bagging_{model_type}", y_test, y_pred, pair_test_data)
                     
                     # Store results
                     results[f"{model_key}_{pair}"] = {
@@ -1760,74 +1870,3 @@ class ForexPrediction:
         logger.info(f"Pipeline completed in {elapsed_time / 60:.2f} minutes")
         
         return results
-
-# Additional utility functions
-def load_config(config_path):
-    """Load configuration from JSON file."""
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-    return config
-
-def save_config(config, config_path):
-    """Save configuration to JSON file."""
-    with open(config_path, 'w') as f:
-        json.dump(config, f, indent=2)
-
-# Import necessary functions for confusion matrix and ROC curve
-from sklearn.metrics import confusion_matrix, precision_recall_curve, roc_curve, roc_auc_score
-from tensorflow.keras import layers
-
-# Main execution
-if __name__ == "__main__":
-    # Save default configuration
-    default_config_path = os.path.join(output_dir, "default_config.json")
-    forex_pred = ForexPrediction()
-    save_config(forex_pred.config, default_config_path)
-    
-    # Run the complete pipeline
-    results = forex_pred.run_pipeline()
-    
-    # Print summary of results
-    logger.info("=== RESULTS SUMMARY ===")
-    
-    best_annual_return = -float('inf')
-    best_model = None
-    
-    for model_key, model_results in results.items():
-        if 'trading_performance' in model_results:
-            perf = model_results['trading_performance']
-            logger.info(f"Model: {model_key}")
-            logger.info(f"  - Annual Return: {perf['annual_return']:.2f}%")
-            logger.info(f"  - Win Rate: {perf['win_rate'] * 100:.2f}%")
-            logger.info(f"  - Max Drawdown: {perf['max_drawdown']:.2f}%")
-            logger.info(f"  - Sharpe Ratio: {perf['sharpe_ratio']:.2f}")
-            logger.info(f"  - Buy & Hold Return: {perf['buy_hold_annual_return']:.2f}%")
-            
-            if perf['annual_return'] > best_annual_return:
-                best_annual_return = perf['annual_return']
-                best_model = model_key
-    
-    if best_model:
-        logger.info(f"The best performing model is {best_model} with annual return of {best_annual_return:.2f}%")
-    
-    logger.info("=== SINGLE VS BAGGING COMPARISON ===")
-    
-    # Compare Single vs Bagging models
-    if forex_pred.config['use_bagging']:
-        for model_type in forex_pred.config['models_to_train']:
-            logger.info(f"Model type: {model_type}")
-            
-            for pair in forex_pred.config['currency_pairs']:
-                single_key = f"{pair}_{model_type}"
-                bagging_key = f"Bagging_{model_type}_{pair}"
-                
-                if single_key in results and bagging_key in results:
-                    single_return = results[single_key]['trading_performance']['annual_return']
-                    bagging_return = results[bagging_key]['trading_performance']['annual_return']
-                    
-                    improvement = bagging_return - single_return
-                    
-                    logger.info(f"  {pair}: Single={single_return:.2f}%, Bagging={bagging_return:.2f}%, Improvement={improvement:.2f}%")
-    
-    logger.info("Forex Prediction Pipeline completed successfully")
-    print("Forex Prediction Pipeline completed successfully. See logs and output directory for results.")

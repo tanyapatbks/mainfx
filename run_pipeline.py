@@ -10,7 +10,8 @@ import argparse
 import logging
 from datetime import datetime
 
-from forex_prediction import ForexPrediction, load_config, save_config
+# Import the main class
+from forex_prediction import ForexPrediction
 
 # Set up logging
 log_dir = "logs"
@@ -25,6 +26,18 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Define utility functions locally
+def load_config(config_path):
+    """Load configuration from JSON file."""
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    return config
+
+def save_config(config, config_path):
+    """Save configuration to JSON file."""
+    with open(config_path, 'w') as f:
+        json.dump(config, f, indent=2)
 
 def main():
     """Main function to run the Forex Prediction Pipeline."""
