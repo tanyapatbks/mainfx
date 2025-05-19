@@ -1,0 +1,8 @@
+### large/generated files
+output/
+*.csv
+*.keras
+logs/
+.DS_Store
+__pycache__/
+output/plots/
