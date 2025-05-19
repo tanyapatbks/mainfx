@@ -1,0 +1,100 @@
+2025-05-19 11:33:59,453 - forex_prediction - INFO - No GPU available, using CPU
+2025-05-19 11:33:59,454 - __main__ - INFO - Saved configuration to output/run_config.json
+2025-05-19 11:33:59,454 - forex_prediction - INFO - Forex Prediction system initialized
+2025-05-19 11:33:59,454 - forex_prediction - INFO - Configuration: {
+  "window_size": 60,
+  "prediction_horizon": 1,
+  "batch_size": 32,
+  "epochs": 100,
+  "patience": 20,
+  "test_size": 0.2,
+  "validation_size": 0.2,
+  "random_state": 42,
+  "train_start": "2020-01-01",
+  "train_end": "2021-12-31",
+  "test_start": "2022-01-01",
+  "test_end": "2022-04-30",
+  "feature_selection_methods": [
+    "random_forest",
+    "mutual_info",
+    "pca"
+  ],
+  "n_features": 30,
+  "models_to_train": [
+    "cnn_lstm",
+    "tft",
+    "xgboost"
+  ],
+  "currency_pairs": [
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY"
+  ],
+  "use_bagging": true,
+  "scaler_type": "standard",
+  "hyperparameter_tuning": false,
+  "n_trials": 25,
+  "evaluation_metrics": [
+    "annual_return",
+    "win_rate",
+    "market_condition",
+    "buy_hold_comparison",
+    "single_bagging_comparison"
+  ]
+}
+2025-05-19 11:33:59,454 - __main__ - INFO - Starting Forex Prediction Pipeline
+2025-05-19 11:33:59,454 - forex_prediction - INFO - Starting the Forex Prediction pipeline
+2025-05-19 11:33:59,454 - forex_prediction - INFO - STEP 1: Data Collection & Preprocessing
+2025-05-19 11:33:59,454 - forex_prediction - INFO - Starting data loading process
+2025-05-19 11:33:59,474 - forex_prediction - INFO - Loaded EURUSD data: (33172, 5) rows
+2025-05-19 11:33:59,491 - forex_prediction - INFO - Loaded GBPUSD data: (33169, 5) rows
+2025-05-19 11:33:59,509 - forex_prediction - INFO - Loaded USDJPY data: (33172, 5) rows
+2025-05-19 11:33:59,509 - forex_prediction - INFO - Starting data preprocessing
+2025-05-19 11:33:59,709 - forex_prediction - INFO - Common date range: 2020-01-01 22:00:00 to 2025-04-25 20:00:00, total: 46583 hours
+2025-05-19 11:33:59,759 - forex_prediction - INFO - Preprocessed EURUSD data: Full=(46583, 8), Train=(17499, 8), Test=(2857, 8)
+2025-05-19 11:33:59,759 - forex_prediction - INFO - Missing values in EURUSD preprocessed data: 2
+2025-05-19 11:33:59,809 - forex_prediction - INFO - Preprocessed GBPUSD data: Full=(46583, 8), Train=(17499, 8), Test=(2857, 8)
+2025-05-19 11:33:59,809 - forex_prediction - INFO - Missing values in GBPUSD preprocessed data: 2
+2025-05-19 11:33:59,859 - forex_prediction - INFO - Preprocessed USDJPY data: Full=(46583, 8), Train=(17499, 8), Test=(2857, 8)
+2025-05-19 11:33:59,859 - forex_prediction - INFO - Missing values in USDJPY preprocessed data: 2
+2025-05-19 11:33:59,860 - forex_prediction - INFO - STEP 2: Feature Enhancement
+2025-05-19 11:33:59,860 - forex_prediction - INFO - Calculating technical indicators
+2025-05-19 11:33:59,929 - forex_prediction - INFO - Enhanced features for EURUSD: 94 features created
+2025-05-19 11:33:59,985 - forex_prediction - INFO - Enhanced features for GBPUSD: 94 features created
+2025-05-19 11:34:00,040 - forex_prediction - INFO - Enhanced features for USDJPY: 94 features created
+2025-05-19 11:34:06,642 - forex_prediction - INFO - Selecting important features
+2025-05-19 11:34:06,645 - forex_prediction - INFO - Feature selection for EURUSD using Random Forest Importance
+2025-05-19 11:35:20,664 - forex_prediction - INFO - Feature selection for EURUSD using Mutual Information
+2025-05-19 11:35:23,382 - forex_prediction - INFO - Feature selection for EURUSD using PCA
+2025-05-19 11:35:23,400 - forex_prediction - INFO - Selected features for EURUSD: 65 unique features selected
+2025-05-19 11:35:24,032 - forex_prediction - INFO - Feature selection for GBPUSD using Random Forest Importance
+2025-05-19 11:36:37,920 - forex_prediction - INFO - Feature selection for GBPUSD using Mutual Information
+2025-05-19 11:36:40,635 - forex_prediction - INFO - Feature selection for GBPUSD using PCA
+2025-05-19 11:36:40,643 - forex_prediction - INFO - Selected features for GBPUSD: 65 unique features selected
+2025-05-19 11:36:40,850 - forex_prediction - INFO - Feature selection for USDJPY using Random Forest Importance
+2025-05-19 11:38:00,386 - forex_prediction - INFO - Feature selection for USDJPY using Mutual Information
+2025-05-19 11:38:03,102 - forex_prediction - INFO - Feature selection for USDJPY using PCA
+2025-05-19 11:38:03,110 - forex_prediction - INFO - Selected features for USDJPY: 66 unique features selected
+2025-05-19 11:38:03,323 - forex_prediction - INFO - Creating bagging dataset
+2025-05-19 11:38:03,348 - forex_prediction - INFO - Bagging dataset created: Train=(52497, 79), Test=(8571, 79)
+2025-05-19 11:38:03,351 - forex_prediction - INFO - STEP 3: Model Development
+2025-05-19 11:38:03,351 - forex_prediction - INFO - Starting model training
+2025-05-19 11:38:03,351 - forex_prediction - INFO - Training models for EURUSD
+2025-05-19 11:38:03,351 - forex_prediction - INFO - Training CNN-LSTM model for EURUSD
+2025-05-19 11:39:31,536 - forex_prediction - INFO - CNN-LSTM model for EURUSD trained successfully
+2025-05-19 11:39:31,536 - forex_prediction - INFO - Training TFT model for EURUSD
+2025-05-19 11:42:42,769 - forex_prediction - INFO - TFT model for EURUSD trained successfully
+2025-05-19 11:42:42,769 - forex_prediction - INFO - Training XGBoost model for EURUSD
+2025-05-19 11:42:42,873 - __main__ - ERROR - Error running pipeline: XGBClassifier.fit() got an unexpected keyword argument 'early_stopping_rounds'
+Traceback (most recent call last):
+  File "/Users/vebkks/Desktop/mainfx/run_pipeline.py", line 116, in main
+    results = forex_pred.run_pipeline()
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/vebkks/Desktop/mainfx/forex_prediction.py", line 1732, in run_pipeline
+    self.train_models()
+  File "/Users/vebkks/Desktop/mainfx/forex_prediction.py", line 858, in train_models
+    model.fit(
+  File "/Users/vebkks/.pyenv/versions/3.11.9/lib/python3.11/site-packages/xgboost/core.py", line 729, in inner_f
+    return func(**kwargs)
+           ^^^^^^^^^^^^^^
+TypeError: XGBClassifier.fit() got an unexpected keyword argument 'early_stopping_rounds'

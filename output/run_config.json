@@ -1,0 +1,41 @@
+{
+  "window_size": 60,
+  "prediction_horizon": 1,
+  "batch_size": 32,
+  "epochs": 100,
+  "patience": 20,
+  "test_size": 0.2,
+  "validation_size": 0.2,
+  "random_state": 42,
+  "train_start": "2020-01-01",
+  "train_end": "2021-12-31",
+  "test_start": "2022-01-01",
+  "test_end": "2022-04-30",
+  "feature_selection_methods": [
+    "random_forest",
+    "mutual_info",
+    "pca"
+  ],
+  "n_features": 30,
+  "models_to_train": [
+    "cnn_lstm",
+    "tft",
+    "xgboost"
+  ],
+  "currency_pairs": [
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY"
+  ],
+  "use_bagging": true,
+  "scaler_type": "standard",
+  "hyperparameter_tuning": false,
+  "n_trials": 25,
+  "evaluation_metrics": [
+    "annual_return",
+    "win_rate",
+    "market_condition",
+    "buy_hold_comparison",
+    "single_bagging_comparison"
+  ]
+}
