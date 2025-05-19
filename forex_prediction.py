@@ -29,7 +29,6 @@ from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.decomposition import PCA
 from sklearn.model_selection import TimeSeriesSplit
 import xgboost as xgb
-from xgboost.callback import EarlyStopping
 
 # Deep Learning Libraries
 import tensorflow as tf
@@ -859,7 +858,6 @@ class ForexPrediction:
                 model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
-                    callbacks=[EarlyStopping(rounds=20)],
                     verbose=1
                 )
                 
@@ -927,7 +925,18 @@ class ForexPrediction:
                 )
                 
                 # Load the best model
-                model = load_model(os.path.join(models_dir, "Bagging_cnn_lstm_best.keras"))
+                # เพิ่มการตรวจสอบไฟล์และจัดการข้อผิดพลาด
+                model_path = os.path.join(models_dir, "Bagging_cnn_lstm_best.keras")
+                try:
+                    if os.path.exists(model_path):
+                        model = load_model(model_path)
+                        logger.info(f"Loaded best model from {model_path}")
+                    else:
+                        logger.warning(f"Best model file not found at {model_path}. Using last model state instead.")
+                        # ใช้โมเดลล่าสุดแทน (ไม่ต้องโหลดใหม่เพราะเรามีอยู่แล้วจากการฝึก)
+                except Exception as e:
+                    logger.warning(f"Error loading best model: {e}. Using last model state instead.")
+                    # ใช้โมเดลล่าสุดแทน (ไม่ต้องโหลดใหม่เพราะเรามีอยู่แล้วจากการฝึก)
                 
                 # Store the model and scaler
                 self.models["Bagging_cnn_lstm"] = {

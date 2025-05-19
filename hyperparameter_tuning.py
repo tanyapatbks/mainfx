@@ -13,6 +13,8 @@ from datetime import datetime
 import optuna
 from forex_prediction import ForexPrediction
 
+import xgboost as xgb
+
 # Set up logging
 log_dir = "logs"
 os.makedirs(log_dir, exist_ok=True)
@@ -192,7 +194,6 @@ def objective_xgboost(trial, forex_pred, pair):
     model.fit(
         X_train, y_train,
         eval_set=[(X_val, y_val)],
-        early_stopping_rounds=10,
         verbose=0
     )
     
