@@ -577,21 +577,76 @@ class ForexPrediction:
     def build_cnn_lstm_model(self, input_shape, hyperparams=None):
         """Build a CNN-LSTM hybrid model."""
         if hyperparams is None:
-            hyperparams = {
-                'cnn_filters': 64,
-                'cnn_kernel_size': 3,
-                'lstm_units': 100,
-                'dropout_rate': 0.3,
-                'learning_rate': 0.001
-            }
+            # Get the current pair being processed - attempt to detect from stack trace
+            import traceback
+            stack = traceback.extract_stack()
+            current_pair = None
+            
+            for frame in reversed(stack):
+                for pair in self.config['currency_pairs']:
+                    if pair in str(frame):
+                        current_pair = pair
+                        break
+                if 'Bagging' in str(frame):
+                    current_pair = 'Bagging'
+                    break
+                if current_pair:
+                    break
+            
+            # Use best hyperparameters based on the detected pair
+            if current_pair == 'EURUSD':
+                hyperparams = {
+                    'cnn_filters': 128,
+                    'cnn_kernel_size': 5,
+                    'lstm_units': 125,
+                    'dropout_rate': 0.2,
+                    'learning_rate': 0.007939391616899097
+                }
+                logger.info(f"Using best hyperparameters for EURUSD CNN-LSTM: {hyperparams}")
+            elif current_pair == 'GBPUSD':
+                hyperparams = {
+                    'cnn_filters': 128,
+                    'cnn_kernel_size': 5,
+                    'lstm_units': 100,
+                    'dropout_rate': 0.1,
+                    'learning_rate': 0.00827435928160214
+                }
+                logger.info(f"Using best hyperparameters for GBPUSD CNN-LSTM: {hyperparams}")
+            elif current_pair == 'USDJPY':
+                hyperparams = {
+                    'cnn_filters': 128,
+                    'cnn_kernel_size': 5,
+                    'lstm_units': 125,
+                    'dropout_rate': 0.5,
+                    'learning_rate': 0.0024266085218893753
+                }
+                logger.info(f"Using best hyperparameters for USDJPY CNN-LSTM: {hyperparams}")
+            elif current_pair == 'Bagging':
+                hyperparams = {
+                    'cnn_filters': 64,
+                    'cnn_kernel_size': 3,
+                    'lstm_units': 50,
+                    'dropout_rate': 0.2,
+                    'learning_rate': 0.008666813498020145
+                }
+                logger.info(f"Using best hyperparameters for Bagging CNN-LSTM: {hyperparams}")
+            else:
+                # Default hyperparameters if detection fails
+                hyperparams = {
+                    'cnn_filters': 64,
+                    'cnn_kernel_size': 3,
+                    'lstm_units': 100,
+                    'dropout_rate': 0.3,
+                    'learning_rate': 0.001
+                }
         
         model = Sequential()
         
         # CNN layers
         model.add(Conv1D(filters=hyperparams['cnn_filters'], 
-                         kernel_size=hyperparams['cnn_kernel_size'], 
-                         activation='relu', 
-                         input_shape=input_shape))
+                        kernel_size=hyperparams['cnn_kernel_size'], 
+                        activation='relu', 
+                        input_shape=input_shape))
         model.add(BatchNormalization())
         model.add(MaxPooling1D(pool_size=2))
         model.add(Dropout(hyperparams['dropout_rate']))
@@ -623,12 +678,63 @@ class ForexPrediction:
     def build_tft_model(self, input_dim, hyperparams=None):
         """Build a simplified Temporal Fusion Transformer model using Keras."""
         if hyperparams is None:
-            hyperparams = {
-                'hidden_units': 64,
-                'num_heads': 4,
-                'dropout_rate': 0.2,
-                'learning_rate': 0.001
-            }
+            # Get the current pair being processed - attempt to detect from stack trace
+            import traceback
+            stack = traceback.extract_stack()
+            current_pair = None
+            
+            for frame in reversed(stack):
+                for pair in self.config['currency_pairs']:
+                    if pair in str(frame):
+                        current_pair = pair
+                        break
+                if 'Bagging' in str(frame):
+                    current_pair = 'Bagging'
+                    break
+                if current_pair:
+                    break
+            
+            # Use best hyperparameters based on the detected pair
+            if current_pair == 'EURUSD':
+                hyperparams = {
+                    'hidden_units': 96,
+                    'num_heads': 8,
+                    'dropout_rate': 0.30000000000000004,
+                    'learning_rate': 0.0003415207399054917
+                }
+                logger.info(f"Using best hyperparameters for EURUSD TFT: {hyperparams}")
+            elif current_pair == 'GBPUSD':
+                hyperparams = {
+                    'hidden_units': 64,
+                    'num_heads': 6,
+                    'dropout_rate': 0.30000000000000004,
+                    'learning_rate': 0.007986228170888614
+                }
+                logger.info(f"Using best hyperparameters for GBPUSD TFT: {hyperparams}")
+            elif current_pair == 'USDJPY':
+                hyperparams = {
+                    'hidden_units': 64,
+                    'num_heads': 8,
+                    'dropout_rate': 0.4,
+                    'learning_rate': 0.009628254659726812
+                }
+                logger.info(f"Using best hyperparameters for USDJPY TFT: {hyperparams}")
+            elif current_pair == 'Bagging':
+                hyperparams = {
+                    'hidden_units': 64,
+                    'num_heads': 2,
+                    'dropout_rate': 0.5,
+                    'learning_rate': 0.0003245051346474138
+                }
+                logger.info(f"Using best hyperparameters for Bagging TFT: {hyperparams}")
+            else:
+                # Default hyperparameters if detection fails
+                hyperparams = {
+                    'hidden_units': 64,
+                    'num_heads': 4,
+                    'dropout_rate': 0.2,
+                    'learning_rate': 0.001
+                }
         
         # Input
         inputs = Input(shape=(self.config['window_size'], input_dim))
@@ -674,17 +780,88 @@ class ForexPrediction:
     def build_xgboost_model(self, hyperparams=None):
         """Build an XGBoost model."""
         if hyperparams is None:
-            hyperparams = {
-                'max_depth': 5,
-                'learning_rate': 0.1,
-                'n_estimators': 100,
-                'subsample': 0.8,
-                'colsample_bytree': 0.8,
-                'gamma': 0,
-                'reg_alpha': 0,
-                'reg_lambda': 1,
-                'objective': 'binary:logistic'
-            }
+            # Get the current pair being processed - attempt to detect from stack trace
+            import traceback
+            stack = traceback.extract_stack()
+            current_pair = None
+            
+            for frame in reversed(stack):
+                for pair in self.config['currency_pairs']:
+                    if pair in str(frame):
+                        current_pair = pair
+                        break
+                if 'Bagging' in str(frame):
+                    current_pair = 'Bagging'
+                    break
+                if current_pair:
+                    break
+                    
+            # Use best hyperparameters based on the detected pair
+            if current_pair == 'EURUSD':
+                hyperparams = {
+                    'max_depth': 4,
+                    'learning_rate': 0.05919941391649613,
+                    'n_estimators': 150,
+                    'subsample': 0.9,
+                    'colsample_bytree': 0.6,
+                    'gamma': 3.0461476893452946,
+                    'reg_alpha': 1.940937663027804,
+                    'reg_lambda': 4.955124273045923,
+                    'objective': 'binary:logistic'
+                }
+                logger.info(f"Using best hyperparameters for EURUSD XGBoost: {hyperparams}")
+            elif current_pair == 'GBPUSD':
+                hyperparams = {
+                    'max_depth': 8,
+                    'learning_rate': 0.01872440019277413,
+                    'n_estimators': 150,
+                    'subsample': 0.9,
+                    'colsample_bytree': 0.8,
+                    'gamma': 3.7200984174938254,
+                    'reg_alpha': 1.278513516331774,
+                    'reg_lambda': 3.2349628585550487,
+                    'objective': 'binary:logistic'
+                }
+                logger.info(f"Using best hyperparameters for GBPUSD XGBoost: {hyperparams}")
+            elif current_pair == 'USDJPY':
+                hyperparams = {
+                    'max_depth': 8,
+                    'learning_rate': 0.1188186982268055,
+                    'n_estimators': 200,
+                    'subsample': 0.9,
+                    'colsample_bytree': 0.8,
+                    'gamma': 0.1329340381973978,
+                    'reg_alpha': 4.391622738070774,
+                    'reg_lambda': 3.8280677307920676,
+                    'objective': 'binary:logistic'
+                }
+                logger.info(f"Using best hyperparameters for USDJPY XGBoost: {hyperparams}")
+            elif current_pair == 'Bagging':
+                hyperparams = {
+                    'max_depth': 9,
+                    'learning_rate': 0.07965814559294243,
+                    'n_estimators': 200,
+                    'subsample': 0.9,
+                    'colsample_bytree': 0.8,
+                    'gamma': 1.9798462028411725,
+                    'reg_alpha': 2.8018284766159027,
+                    'reg_lambda': 1.554075905250839,
+                    'objective': 'binary:logistic'
+                }
+                logger.info(f"Using best hyperparameters for Bagging XGBoost: {hyperparams}")
+            else:
+                # Default hyperparameters if detection fails
+                hyperparams = {
+                    'max_depth': 5,
+                    'learning_rate': 0.1,
+                    'n_estimators': 100,
+                    'subsample': 0.8,
+                    'colsample_bytree': 0.8,
+                    'gamma': 0,
+                    'reg_alpha': 0,
+                    'reg_lambda': 1,
+                    'objective': 'binary:logistic'
+                }
         
         model = xgb.XGBClassifier(
             objective=hyperparams['objective'],
