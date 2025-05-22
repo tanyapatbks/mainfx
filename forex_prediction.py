@@ -148,7 +148,7 @@ class ForexPrediction:
         """Load hyperparameters from JSON files."""
         logger.info("Loading hyperparameters from JSON files")
         
-        # Define default hyperparameters as fallback
+        # Define default hyperparameters as fallback - FIXED: Added 'objective' for XGBoost
         default_hyperparams = {
             'cnn_lstm': {
                 'cnn_filters': 64,
@@ -172,7 +172,7 @@ class ForexPrediction:
                 'gamma': 0,
                 'reg_alpha': 0,
                 'reg_lambda': 1,
-                'objective': 'binary:logistic'
+                'objective': 'binary:logistic'  # FIXED: Added missing objective
             }
         }
         
@@ -191,6 +191,12 @@ class ForexPrediction:
                     try:
                         with open(param_file, 'r') as f:
                             params = json.load(f)
+                        
+                        # FIXED: Ensure XGBoost models have 'objective' parameter
+                        if model_type == 'xgboost' and 'objective' not in params:
+                            params['objective'] = 'binary:logistic'
+                            logger.info(f"Added missing 'objective' parameter to {pair} {model_type}")
+                        
                         self.hyperparameters[model_type][pair] = params
                         logger.info(f"Loaded hyperparameters for {pair} {model_type}: {params}")
                     except Exception as e:
@@ -208,6 +214,12 @@ class ForexPrediction:
                     try:
                         with open(bagging_param_file, 'r') as f:
                             params = json.load(f)
+                        
+                        # FIXED: Ensure XGBoost models have 'objective' parameter
+                        if model_type == 'xgboost' and 'objective' not in params:
+                            params['objective'] = 'binary:logistic'
+                            logger.info(f"Added missing 'objective' parameter to Bagging {model_type}")
+                        
                         self.hyperparameters[model_type]['Bagging'] = params
                         logger.info(f"Loaded hyperparameters for Bagging {model_type}: {params}")
                     except Exception as e:
@@ -223,7 +235,7 @@ class ForexPrediction:
             return self.hyperparameters[model_type][pair_or_bagging]
         except KeyError:
             logger.warning(f"Hyperparameters not found for {model_type} {pair_or_bagging}, using defaults")
-            # Return default hyperparameters
+            # FIXED: Return default hyperparameters with proper 'objective' for XGBoost
             default_hyperparams = {
                 'cnn_lstm': {
                     'cnn_filters': 64,
@@ -247,7 +259,7 @@ class ForexPrediction:
                     'gamma': 0,
                     'reg_alpha': 0,
                     'reg_lambda': 1,
-                    'objective': 'binary:logistic'
+                    'objective': 'binary:logistic'  # FIXED: Added missing objective
                 }
             }
             return default_hyperparams.get(model_type, {})
@@ -983,20 +995,21 @@ class ForexPrediction:
                 'gamma': 0,
                 'reg_alpha': 0,
                 'reg_lambda': 1,
-                'objective': 'binary:logistic'
+                'objective': 'binary:logistic'  # FIXED: Added default objective
             }
             logger.info(f"Using default hyperparameters for XGBoost: {hyperparams}")
         
+        # FIXED: Use .get() method to safely access 'objective' with fallback
         model = xgb.XGBClassifier(
-            objective=hyperparams['objective'],
-            max_depth=hyperparams['max_depth'],
-            learning_rate=hyperparams['learning_rate'],
-            n_estimators=hyperparams['n_estimators'],
-            subsample=hyperparams['subsample'],
-            colsample_bytree=hyperparams['colsample_bytree'],
-            gamma=hyperparams['gamma'],
-            reg_alpha=hyperparams['reg_alpha'],
-            reg_lambda=hyperparams['reg_lambda'],
+            objective=hyperparams.get('objective', 'binary:logistic'),  # Safe access with fallback
+            max_depth=hyperparams.get('max_depth', 5),
+            learning_rate=hyperparams.get('learning_rate', 0.1),
+            n_estimators=hyperparams.get('n_estimators', 100),
+            subsample=hyperparams.get('subsample', 0.8),
+            colsample_bytree=hyperparams.get('colsample_bytree', 0.8),
+            gamma=hyperparams.get('gamma', 0),
+            reg_alpha=hyperparams.get('reg_alpha', 0),
+            reg_lambda=hyperparams.get('reg_lambda', 1),
             random_state=self.config['random_state']
         )
         
