@@ -1,6 +1,7 @@
 """
-Forex Trend Prediction Model
-- Using Single Currency Pair Models vs Bagging Model
+Enhanced Forex Trend Prediction Model
+- Improved hyperparameter loading from JSON files
+- Comprehensive visualization capabilities
 - Models: CNN-LSTM, TFT, XGBoost
 - Currency Pairs: EURUSD, GBPUSD, USDJPY
 """
@@ -60,8 +61,9 @@ models_dir = os.path.join(output_dir, "models")
 results_dir = os.path.join(output_dir, "results")
 plots_dir = os.path.join(output_dir, "plots")
 feature_dir = os.path.join(output_dir, "features")
+hyperparams_dir = os.path.join(output_dir, "hyperparameter_tuning")
 
-for directory in [output_dir, models_dir, results_dir, plots_dir, feature_dir]:
+for directory in [output_dir, models_dir, results_dir, plots_dir, feature_dir, hyperparams_dir]:
     os.makedirs(directory, exist_ok=True)
 
 # Global constants
@@ -77,6 +79,10 @@ TRAIN_START = '2020-01-01'
 TRAIN_END = '2021-12-31'
 TEST_START = '2022-01-01'
 TEST_END = '2022-04-30'
+
+# Enhanced plotting style
+plt.style.use('seaborn-v0_8')
+sns.set_palette("husl")
 
 # Enable GPU growth if available
 try:
@@ -130,13 +136,871 @@ class ForexPrediction:
         self.scalers = {}  # Dict to store fitted scalers
         self.results = {}  # Dict to store evaluation results
         self.bagging_data = None  # Combined data for bagging approach
+        self.hyperparameters = {}  # Dict to store loaded hyperparameters
+        
+        # Load hyperparameters at initialization
+        self.load_hyperparameters()
         
         logger.info("Forex Prediction system initialized")
         logger.info(f"Configuration: {json.dumps(self.config, indent=2)}")
     
+    def load_hyperparameters(self):
+        """Load hyperparameters from JSON files."""
+        logger.info("Loading hyperparameters from JSON files")
+        
+        # Define default hyperparameters as fallback
+        default_hyperparams = {
+            'cnn_lstm': {
+                'cnn_filters': 64,
+                'cnn_kernel_size': 3,
+                'lstm_units': 100,
+                'dropout_rate': 0.3,
+                'learning_rate': 0.001
+            },
+            'tft': {
+                'hidden_units': 64,
+                'num_heads': 4,
+                'dropout_rate': 0.2,
+                'learning_rate': 0.001
+            },
+            'xgboost': {
+                'max_depth': 5,
+                'learning_rate': 0.1,
+                'n_estimators': 100,
+                'subsample': 0.8,
+                'colsample_bytree': 0.8,
+                'gamma': 0,
+                'reg_alpha': 0,
+                'reg_lambda': 1,
+                'objective': 'binary:logistic'
+            }
+        }
+        
+        # Initialize hyperparameters dict
+        self.hyperparameters = {}
+        
+        # Load hyperparameters for each model and currency pair combination
+        for model_type in self.config['models_to_train']:
+            self.hyperparameters[model_type] = {}
+            
+            # Load for individual currency pairs
+            for pair in self.config['currency_pairs']:
+                param_file = os.path.join(hyperparams_dir, f"{pair}_{model_type}_best_hyperparams.json")
+                
+                if os.path.exists(param_file):
+                    try:
+                        with open(param_file, 'r') as f:
+                            params = json.load(f)
+                        self.hyperparameters[model_type][pair] = params
+                        logger.info(f"Loaded hyperparameters for {pair} {model_type}: {params}")
+                    except Exception as e:
+                        logger.warning(f"Error loading hyperparameters for {pair} {model_type}: {e}")
+                        self.hyperparameters[model_type][pair] = default_hyperparams[model_type].copy()
+                else:
+                    logger.warning(f"Hyperparameter file not found for {pair} {model_type}, using defaults")
+                    self.hyperparameters[model_type][pair] = default_hyperparams[model_type].copy()
+            
+            # Load for bagging models
+            if self.config['use_bagging']:
+                bagging_param_file = os.path.join(hyperparams_dir, f"Bagging_{model_type}_best_hyperparams.json")
+                
+                if os.path.exists(bagging_param_file):
+                    try:
+                        with open(bagging_param_file, 'r') as f:
+                            params = json.load(f)
+                        self.hyperparameters[model_type]['Bagging'] = params
+                        logger.info(f"Loaded hyperparameters for Bagging {model_type}: {params}")
+                    except Exception as e:
+                        logger.warning(f"Error loading hyperparameters for Bagging {model_type}: {e}")
+                        self.hyperparameters[model_type]['Bagging'] = default_hyperparams[model_type].copy()
+                else:
+                    logger.warning(f"Hyperparameter file not found for Bagging {model_type}, using defaults")
+                    self.hyperparameters[model_type]['Bagging'] = default_hyperparams[model_type].copy()
+    
+    def get_hyperparameters(self, model_type, pair_or_bagging):
+        """Get hyperparameters for a specific model and currency pair/bagging."""
+        try:
+            return self.hyperparameters[model_type][pair_or_bagging]
+        except KeyError:
+            logger.warning(f"Hyperparameters not found for {model_type} {pair_or_bagging}, using defaults")
+            # Return default hyperparameters
+            default_hyperparams = {
+                'cnn_lstm': {
+                    'cnn_filters': 64,
+                    'cnn_kernel_size': 3,
+                    'lstm_units': 100,
+                    'dropout_rate': 0.3,
+                    'learning_rate': 0.001
+                },
+                'tft': {
+                    'hidden_units': 64,
+                    'num_heads': 4,
+                    'dropout_rate': 0.2,
+                    'learning_rate': 0.001
+                },
+                'xgboost': {
+                    'max_depth': 5,
+                    'learning_rate': 0.1,
+                    'n_estimators': 100,
+                    'subsample': 0.8,
+                    'colsample_bytree': 0.8,
+                    'gamma': 0,
+                    'reg_alpha': 0,
+                    'reg_lambda': 1,
+                    'objective': 'binary:logistic'
+                }
+            }
+            return default_hyperparams.get(model_type, {})
+
     #####################################
-    # STEP 1: DATA COLLECTION & PREPROCESSING
+    # VISUALIZATION FUNCTIONS
     #####################################
+    
+    def create_data_visualizations(self):
+        """Create comprehensive data visualizations before training."""
+        logger.info("Creating data visualizations")
+        
+        # Create subplots for time series plots
+        fig, axes = plt.subplots(len(self.config['currency_pairs']), 1, figsize=(15, 4*len(self.config['currency_pairs'])))
+        if len(self.config['currency_pairs']) == 1:
+            axes = [axes]
+        
+        for idx, pair in enumerate(self.config['currency_pairs']):
+            # Time Series Plot: Close Price during training period
+            train_data = self.preprocessed_data[pair]['train']
+            
+            axes[idx].plot(train_data.index, train_data['Close'], linewidth=1, alpha=0.8)
+            axes[idx].set_title(f'{pair} Close Price - Training Period ({self.config["train_start"]} to {self.config["train_end"]})', 
+                               fontsize=12, fontweight='bold')
+            axes[idx].set_xlabel('Date')
+            axes[idx].set_ylabel('Price')
+            axes[idx].grid(True, alpha=0.3)
+            axes[idx].tick_params(axis='x', rotation=45)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "data_time_series_plots.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Correlation Heatmap for OHLCV features
+        fig, axes = plt.subplots(1, len(self.config['currency_pairs']), figsize=(6*len(self.config['currency_pairs']), 5))
+        if len(self.config['currency_pairs']) == 1:
+            axes = [axes]
+        
+        for idx, pair in enumerate(self.config['currency_pairs']):
+            train_data = self.preprocessed_data[pair]['train']
+            # Calculate correlation matrix for OHLCV features
+            ohlcv_data = train_data[['Open', 'High', 'Low', 'Close', 'Volume']]
+            correlation_matrix = ohlcv_data.corr()
+            
+            # Create heatmap
+            sns.heatmap(correlation_matrix, annot=True, cmap='RdYlBu_r', center=0, 
+                       square=True, ax=axes[idx], cbar_kws={"shrink": .8})
+            axes[idx].set_title(f'{pair} OHLCV Correlation', fontsize=12, fontweight='bold')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "data_correlation_heatmaps.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Distribution plots for key features
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        axes = axes.flatten()
+        
+        feature_names = ['Returns', 'Log_Returns', 'Volume', 'Range']
+        
+        for idx, feature in enumerate(feature_names):
+            if idx < len(axes):
+                for pair in self.config['currency_pairs']:
+                    train_data = self.preprocessed_data[pair]['train']
+                    if feature == 'Range':
+                        feature_data = train_data['High'] - train_data['Low']
+                    else:
+                        feature_data = train_data[feature]
+                    
+                    # Remove outliers for better visualization
+                    q1, q3 = feature_data.quantile([0.25, 0.75])
+                    iqr = q3 - q1
+                    lower = q1 - 1.5 * iqr
+                    upper = q3 + 1.5 * iqr
+                    filtered_data = feature_data[(feature_data >= lower) & (feature_data <= upper)]
+                    
+                    axes[idx].hist(filtered_data.dropna(), bins=50, alpha=0.6, label=pair, density=True)
+                
+                axes[idx].set_title(f'Distribution of {feature}', fontsize=12, fontweight='bold')
+                axes[idx].set_xlabel(feature)
+                axes[idx].set_ylabel('Density')
+                axes[idx].legend()
+                axes[idx].grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "data_feature_distributions.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        logger.info("Data visualizations saved to plots directory")
+    
+    def create_training_visualizations(self, model_key, history):
+        """Create training loss and accuracy plots."""
+        if 'history' not in history:
+            logger.warning(f"No training history found for {model_key}")
+            return
+        
+        hist = history['history']
+        
+        # Create training plots
+        fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+        
+        # Loss plot
+        epochs = range(1, len(hist['loss']) + 1)
+        axes[0].plot(epochs, hist['loss'], 'b-', label='Training Loss', linewidth=2)
+        axes[0].plot(epochs, hist['val_loss'], 'r-', label='Validation Loss', linewidth=2)
+        axes[0].set_title(f'{model_key} Training and Validation Loss', fontsize=12, fontweight='bold')
+        axes[0].set_xlabel('Epochs')
+        axes[0].set_ylabel('Loss')
+        axes[0].legend()
+        axes[0].grid(True, alpha=0.3)
+        
+        # Accuracy plot
+        axes[1].plot(epochs, hist['accuracy'], 'b-', label='Training Accuracy', linewidth=2)
+        axes[1].plot(epochs, hist['val_accuracy'], 'r-', label='Validation Accuracy', linewidth=2)
+        axes[1].set_title(f'{model_key} Training and Validation Accuracy', fontsize=12, fontweight='bold')
+        axes[1].set_xlabel('Epochs')
+        axes[1].set_ylabel('Accuracy')
+        axes[1].legend()
+        axes[1].grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, f"{model_key}_training_history.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def create_prediction_visualizations(self, model_key, y_true, y_pred, y_pred_proba, test_data):
+        """Create prediction result visualizations."""
+        # Convert predictions to price predictions for visualization
+        close_prices = test_data['Close'].values
+        
+        # Align close prices with predictions
+        if len(close_prices) > len(y_pred) + self.config['window_size']:
+            close_prices = close_prices[self.config['window_size']:len(y_pred) + self.config['window_size']]
+        else:
+            close_prices = close_prices[-len(y_pred):]
+        
+        # Create figure with subplots
+        fig, axes = plt.subplots(2, 2, figsize=(20, 12))
+        
+        # 1. Time series of actual vs predicted direction
+        time_index = range(len(y_true))
+        axes[0, 0].plot(time_index, y_true, 'b-', label='Actual Direction', alpha=0.7, linewidth=2)
+        axes[0, 0].plot(time_index, y_pred, 'r-', label='Predicted Direction', alpha=0.7, linewidth=2)
+        axes[0, 0].fill_between(time_index, y_true, y_pred, alpha=0.3, color='gray')
+        axes[0, 0].set_title(f'{model_key} - Actual vs Predicted Direction', fontsize=12, fontweight='bold')
+        axes[0, 0].set_xlabel('Time Steps')
+        axes[0, 0].set_ylabel('Direction (0=Down, 1=Up)')
+        axes[0, 0].legend()
+        axes[0, 0].grid(True, alpha=0.3)
+        
+        # 2. Price movement with prediction confidence
+        axes[0, 1].plot(time_index, close_prices, 'k-', label='Close Price', linewidth=2)
+        
+        # Color-code based on prediction confidence
+        for i in range(len(y_pred_proba)):
+            confidence = abs(y_pred_proba[i] - 0.5) * 2  # Convert to 0-1 scale
+            color = 'green' if y_pred[i] == 1 else 'red'
+            alpha = max(0.1, confidence)
+            axes[0, 1].scatter(i, close_prices[i], c=color, alpha=alpha, s=10)
+        
+        axes[0, 1].set_title(f'{model_key} - Price Movement with Prediction Confidence', fontsize=12, fontweight='bold')
+        axes[0, 1].set_xlabel('Time Steps')
+        axes[0, 1].set_ylabel('Price')
+        axes[0, 1].legend()
+        axes[0, 1].grid(True, alpha=0.3)
+        
+        # 3. Scatter plot: Actual vs Predicted probabilities
+        axes[1, 0].scatter(y_true, y_pred_proba, alpha=0.6, s=20)
+        axes[1, 0].plot([0, 1], [0, 1], 'r--', linewidth=2, label='Perfect Prediction')
+        axes[1, 0].axhline(y=0.5, color='gray', linestyle='--', alpha=0.7)
+        axes[1, 0].axvline(x=0.5, color='gray', linestyle='--', alpha=0.7)
+        axes[1, 0].set_title(f'{model_key} - Actual vs Predicted Probabilities', fontsize=12, fontweight='bold')
+        axes[1, 0].set_xlabel('Actual Direction')
+        axes[1, 0].set_ylabel('Predicted Probability')
+        axes[1, 0].legend()
+        axes[1, 0].grid(True, alpha=0.3)
+        
+        # 4. Prediction confidence distribution
+        axes[1, 1].hist(y_pred_proba, bins=30, alpha=0.7, edgecolor='black')
+        axes[1, 1].axvline(x=0.5, color='red', linestyle='--', linewidth=2, label='Decision Threshold')
+        axes[1, 1].set_title(f'{model_key} - Prediction Confidence Distribution', fontsize=12, fontweight='bold')
+        axes[1, 1].set_xlabel('Predicted Probability')
+        axes[1, 1].set_ylabel('Frequency')
+        axes[1, 1].legend()
+        axes[1, 1].grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, f"{model_key}_prediction_analysis.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def create_evaluation_visualizations(self, results):
+        """Create comprehensive evaluation metric visualizations."""
+        logger.info("Creating evaluation metric visualizations")
+        
+        # Extract data for visualization
+        model_names = []
+        annual_returns = []
+        win_rates = []
+        max_drawdowns = []
+        sharpe_ratios = []
+        buy_hold_returns = []
+        
+        # Separate single and bagging models
+        single_models = {}
+        bagging_models = {}
+        
+        for model_key, model_results in results.items():
+            if 'trading_performance' in model_results:
+                perf = model_results['trading_performance']
+                model_names.append(model_key)
+                annual_returns.append(perf['annual_return'])
+                win_rates.append(perf['win_rate'] * 100)
+                max_drawdowns.append(perf['max_drawdown'])
+                sharpe_ratios.append(perf['sharpe_ratio'])
+                buy_hold_returns.append(perf['buy_hold_annual_return'])
+                
+                # Categorize models
+                if 'Bagging' in model_key:
+                    bagging_models[model_key] = model_results
+                else:
+                    single_models[model_key] = model_results
+        
+        # 1. Overall Performance Comparison
+        fig, axes = plt.subplots(2, 2, figsize=(20, 12))
+        
+        # Annual Return comparison
+        bars = axes[0, 0].bar(model_names, annual_returns, color='skyblue', alpha=0.8)
+        axes[0, 0].bar(model_names, buy_hold_returns, color='lightgray', alpha=0.5)
+        axes[0, 0].set_title('Annual Return Comparison', fontsize=14, fontweight='bold')
+        axes[0, 0].set_ylabel('Annual Return (%)')
+        axes[0, 0].tick_params(axis='x', rotation=90)
+        axes[0, 0].grid(axis='y', linestyle='--', alpha=0.7)
+        axes[0, 0].legend(['Model Return', 'Buy & Hold Return'])
+        
+        # Add value labels on bars
+        for bar, value in zip(bars, annual_returns):
+            axes[0, 0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, 
+                           f'{value:.1f}%', ha='center', va='bottom', fontsize=8)
+        
+        # Win Rate comparison
+        bars = axes[0, 1].bar(model_names, win_rates, color='lightgreen', alpha=0.8)
+        axes[0, 1].axhline(y=50, color='red', linestyle='--', alpha=0.7, label='Random (50%)')
+        axes[0, 1].set_title('Win Rate Comparison', fontsize=14, fontweight='bold')
+        axes[0, 1].set_ylabel('Win Rate (%)')
+        axes[0, 1].tick_params(axis='x', rotation=90)
+        axes[0, 1].grid(axis='y', linestyle='--', alpha=0.7)
+        axes[0, 1].legend()
+        
+        # Add value labels on bars
+        for bar, value in zip(bars, win_rates):
+            axes[0, 1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 1, 
+                           f'{value:.1f}%', ha='center', va='bottom', fontsize=8)
+        
+        # Max Drawdown comparison
+        bars = axes[1, 0].bar(model_names, max_drawdowns, color='salmon', alpha=0.8)
+        axes[1, 0].set_title('Maximum Drawdown Comparison (Lower is Better)', fontsize=14, fontweight='bold')
+        axes[1, 0].set_ylabel('Max Drawdown (%)')
+        axes[1, 0].tick_params(axis='x', rotation=90)
+        axes[1, 0].grid(axis='y', linestyle='--', alpha=0.7)
+        
+        # Add value labels on bars
+        for bar, value in zip(bars, max_drawdowns):
+            axes[1, 0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1, 
+                           f'{value:.1f}%', ha='center', va='bottom', fontsize=8)
+        
+        # Sharpe Ratio comparison
+        bars = axes[1, 1].bar(model_names, sharpe_ratios, color='purple', alpha=0.8)
+        axes[1, 1].axhline(y=1, color='green', linestyle='--', alpha=0.7, label='Good (1.0)')
+        axes[1, 1].axhline(y=2, color='orange', linestyle='--', alpha=0.7, label='Excellent (2.0)')
+        axes[1, 1].set_title('Sharpe Ratio Comparison', fontsize=14, fontweight='bold')
+        axes[1, 1].set_ylabel('Sharpe Ratio')
+        axes[1, 1].tick_params(axis='x', rotation=90)
+        axes[1, 1].grid(axis='y', linestyle='--', alpha=0.7)
+        axes[1, 1].legend()
+        
+        # Add value labels on bars
+        for bar, value in zip(bars, sharpe_ratios):
+            axes[1, 1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05, 
+                           f'{value:.2f}', ha='center', va='bottom', fontsize=8)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "evaluation_metrics_comprehensive.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # 2. Single vs Bagging Comparison
+        if self.config['use_bagging']:
+            self.create_single_vs_bagging_comparison(results)
+        
+        # 3. Market Condition Analysis
+        self.create_market_condition_analysis(results)
+        
+        # 4. Risk-Return Scatter Plot
+        self.create_risk_return_analysis(results)
+        
+        # 5. Performance Summary Table
+        self.create_performance_table(results)
+    
+    def create_single_vs_bagging_comparison(self, results):
+        """Create detailed single vs bagging comparison plots."""
+        logger.info("Creating Single vs Bagging comparison visualizations")
+        
+        currencies = self.config['currency_pairs']
+        model_types = self.config['models_to_train']
+        
+        fig, axes = plt.subplots(len(model_types), 4, figsize=(20, 5*len(model_types)))
+        if len(model_types) == 1:
+            axes = axes.reshape(1, -1)
+        
+        metrics = ['annual_return', 'win_rate', 'max_drawdown', 'sharpe_ratio']
+        metric_titles = ['Annual Return (%)', 'Win Rate (%)', 'Max Drawdown (%)', 'Sharpe Ratio']
+        
+        for model_idx, model_type in enumerate(model_types):
+            for metric_idx, (metric, title) in enumerate(zip(metrics, metric_titles)):
+                single_values = []
+                bagging_values = []
+                pair_labels = []
+                
+                for pair in currencies:
+                    single_key = f"{pair}_{model_type}"
+                    bagging_key = f"Bagging_{model_type}_{pair}"
+                    
+                    if single_key in results and bagging_key in results:
+                        if metric == 'win_rate':
+                            single_val = results[single_key]['trading_performance'][metric] * 100
+                            bagging_val = results[bagging_key]['trading_performance'][metric] * 100
+                        else:
+                            single_val = results[single_key]['trading_performance'][metric]
+                            bagging_val = results[bagging_key]['trading_performance'][metric]
+                        
+                        single_values.append(single_val)
+                        bagging_values.append(bagging_val)
+                        pair_labels.append(pair)
+                
+                if single_values and bagging_values:
+                    x = np.arange(len(pair_labels))
+                    width = 0.35
+                    
+                    bars1 = axes[model_idx, metric_idx].bar(x - width/2, single_values, width, 
+                                                           label='Single', alpha=0.8)
+                    bars2 = axes[model_idx, metric_idx].bar(x + width/2, bagging_values, width, 
+                                                           label='Bagging', alpha=0.8)
+                    
+                    axes[model_idx, metric_idx].set_title(f'{model_type} - {title}', 
+                                                         fontsize=12, fontweight='bold')
+                    axes[model_idx, metric_idx].set_ylabel(title)
+                    axes[model_idx, metric_idx].set_xticks(x)
+                    axes[model_idx, metric_idx].set_xticklabels(pair_labels)
+                    axes[model_idx, metric_idx].legend()
+                    axes[model_idx, metric_idx].grid(axis='y', linestyle='--', alpha=0.7)
+                    
+                    # Add improvement indicators
+                    for i, (single, bagging) in enumerate(zip(single_values, bagging_values)):
+                        improvement = bagging - single
+                        color = 'green' if improvement > 0 else 'red'
+                        y_pos = max(single, bagging) + (max(max(single_values), max(bagging_values)) * 0.05)
+                        axes[model_idx, metric_idx].text(i, y_pos, f'{improvement:+.1f}', 
+                                                        ha='center', va='bottom', color=color, fontweight='bold')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "single_vs_bagging_detailed_comparison.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def create_market_condition_analysis(self, results):
+        """Analyze performance in different market conditions."""
+        logger.info("Creating market condition analysis")
+        
+        # Categorize results by market condition
+        up_market_results = {}
+        down_market_results = {}
+        
+        for model_key, model_results in results.items():
+            if 'trading_performance' in model_results:
+                market_condition = model_results['trading_performance']['market_condition']
+                if 'Up' in market_condition:
+                    up_market_results[model_key] = model_results['trading_performance']
+                else:
+                    down_market_results[model_key] = model_results['trading_performance']
+        
+        # Create comparison plot
+        fig, axes = plt.subplots(2, 2, figsize=(20, 12))
+        
+        # Annual Return in different market conditions
+        up_models = list(up_market_results.keys())
+        down_models = list(down_market_results.keys())
+        
+        if up_models:
+            up_returns = [up_market_results[model]['annual_return'] for model in up_models]
+            axes[0, 0].bar(up_models, up_returns, color='green', alpha=0.7, label='Up Market')
+            axes[0, 0].set_title('Annual Returns in Up Market', fontsize=12, fontweight='bold')
+            axes[0, 0].tick_params(axis='x', rotation=90)
+            axes[0, 0].set_ylabel('Annual Return (%)')
+            axes[0, 0].grid(axis='y', alpha=0.3)
+        
+        if down_models:
+            down_returns = [down_market_results[model]['annual_return'] for model in down_models]
+            axes[0, 1].bar(down_models, down_returns, color='red', alpha=0.7, label='Down Market')
+            axes[0, 1].set_title('Annual Returns in Down Market', fontsize=12, fontweight='bold')
+            axes[0, 1].tick_params(axis='x', rotation=90)
+            axes[0, 1].set_ylabel('Annual Return (%)')
+            axes[0, 1].grid(axis='y', alpha=0.3)
+        
+        # Win Rates in different market conditions
+        if up_models:
+            up_win_rates = [up_market_results[model]['win_rate'] * 100 for model in up_models]
+            axes[1, 0].bar(up_models, up_win_rates, color='green', alpha=0.7)
+            axes[1, 0].axhline(y=50, color='black', linestyle='--', alpha=0.7)
+            axes[1, 0].set_title('Win Rates in Up Market', fontsize=12, fontweight='bold')
+            axes[1, 0].tick_params(axis='x', rotation=90)
+            axes[1, 0].set_ylabel('Win Rate (%)')
+            axes[1, 0].grid(axis='y', alpha=0.3)
+        
+        if down_models:
+            down_win_rates = [down_market_results[model]['win_rate'] * 100 for model in down_models]
+            axes[1, 1].bar(down_models, down_win_rates, color='red', alpha=0.7)
+            axes[1, 1].axhline(y=50, color='black', linestyle='--', alpha=0.7)
+            axes[1, 1].set_title('Win Rates in Down Market', fontsize=12, fontweight='bold')
+            axes[1, 1].tick_params(axis='x', rotation=90)
+            axes[1, 1].set_ylabel('Win Rate (%)')
+            axes[1, 1].grid(axis='y', alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "market_condition_analysis.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def create_risk_return_analysis(self, results):
+        """Create risk-return scatter plot analysis."""
+        logger.info("Creating risk-return analysis")
+        
+        fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+        
+        # Extract risk (max drawdown) and return data
+        returns = []
+        risks = []
+        labels = []
+        colors = []
+        
+        for model_key, model_results in results.items():
+            if 'trading_performance' in model_results:
+                perf = model_results['trading_performance']
+                returns.append(perf['annual_return'])
+                risks.append(perf['max_drawdown'])
+                labels.append(model_key)
+                
+                # Color by model type
+                if 'cnn_lstm' in model_key.lower():
+                    colors.append('blue')
+                elif 'tft' in model_key.lower():
+                    colors.append('green')
+                elif 'xgboost' in model_key.lower():
+                    colors.append('red')
+                else:
+                    colors.append('purple')
+        
+        # Create scatter plot
+        scatter = ax.scatter(risks, returns, c=colors, alpha=0.7, s=100)
+        
+        # Add labels for each point
+        for i, label in enumerate(labels):
+            ax.annotate(label, (risks[i], returns[i]), xytext=(5, 5), 
+                       textcoords='offset points', fontsize=8, alpha=0.8)
+        
+        # Add quadrant lines
+        ax.axhline(y=0, color='black', linestyle='-', alpha=0.5)
+        ax.axvline(x=np.median(risks), color='black', linestyle='--', alpha=0.5, 
+                  label=f'Median Risk ({np.median(risks):.1f}%)')
+        
+        # Add ideal region (high return, low risk)
+        ax.axhspan(0, max(returns), xmin=0, xmax=np.median(risks)/max(risks), 
+                  alpha=0.1, color='green', label='Ideal Region')
+        
+        ax.set_xlabel('Risk (Max Drawdown %)', fontsize=12)
+        ax.set_ylabel('Return (Annual Return %)', fontsize=12)
+        ax.set_title('Risk-Return Analysis: All Models', fontsize=14, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "risk_return_analysis.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def create_performance_table(self, results):
+        """Create a comprehensive performance summary table."""
+        logger.info("Creating performance summary table")
+        
+        # Prepare data for table
+        table_data = []
+        for model_key, model_results in results.items():
+            if 'trading_performance' in model_results:
+                perf = model_results['trading_performance']
+                table_data.append([
+                    model_key,
+                    f"{perf['annual_return']:.2f}%",
+                    f"{perf['win_rate']*100:.1f}%",
+                    f"{perf['max_drawdown']:.2f}%",
+                    f"{perf['sharpe_ratio']:.2f}",
+                    f"{perf['trade_count']:d}",
+                    perf['market_condition'],
+                    f"{perf['buy_hold_annual_return']:.2f}%"
+                ])
+        
+        # Sort by annual return (descending)
+        table_data.sort(key=lambda x: float(x[1].replace('%', '')), reverse=True)
+        
+        # Create table plot
+        fig, ax = plt.subplots(figsize=(16, max(8, len(table_data) * 0.5)))
+        ax.axis('tight')
+        ax.axis('off')
+        
+        columns = ['Model', 'Annual Return', 'Win Rate', 'Max Drawdown', 
+                  'Sharpe Ratio', 'Trades', 'Market Condition', 'Buy & Hold Return']
+        
+        # Create table
+        table = ax.table(cellText=table_data, colLabels=columns, cellLoc='center', loc='center')
+        table.auto_set_font_size(False)
+        table.set_fontsize(9)
+        table.scale(1, 2)
+        
+        # Style the table
+        for i in range(len(columns)):
+            table[(0, i)].set_facecolor('#40466e')
+            table[(0, i)].set_text_props(weight='bold', color='white')
+        
+        # Color code performance
+        for i in range(1, len(table_data) + 1):
+            annual_return = float(table_data[i-1][1].replace('%', ''))
+            if annual_return > 10:
+                table[(i, 1)].set_facecolor('#90EE90')  # Light green
+            elif annual_return > 0:
+                table[(i, 1)].set_facecolor('#FFFFE0')  # Light yellow
+            else:
+                table[(i, 1)].set_facecolor('#FFB6C1')  # Light red
+        
+        plt.title('Model Performance Summary Table\n(Sorted by Annual Return)', 
+                 fontsize=16, fontweight='bold', pad=20)
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "performance_summary_table.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def create_feature_importance_visualizations(self):
+        """Create feature importance visualizations for trained models."""
+        logger.info("Creating feature importance visualizations")
+        
+        # Only XGBoost models have direct feature importance
+        xgboost_models = {k: v for k, v in self.models.items() if 'xgboost' in k}
+        
+        if not xgboost_models:
+            logger.warning("No XGBoost models found for feature importance analysis")
+            return
+        
+        n_models = len(xgboost_models)
+        fig, axes = plt.subplots(n_models, 1, figsize=(15, 6*n_models))
+        if n_models == 1:
+            axes = [axes]
+        
+        for idx, (model_key, model_data) in enumerate(xgboost_models.items()):
+            model = model_data['model']
+            feature_names = model_data.get('feature_names', [])
+            
+            # Get feature importance
+            importance = model.feature_importances_
+            
+            # Create feature importance DataFrame
+            if feature_names:
+                # If we have flattened features for XGBoost, we need to aggregate
+                if len(feature_names) * self.config['window_size'] == len(importance):
+                    # Aggregate importance by feature name across time steps
+                    feature_importance = {}
+                    for i, imp in enumerate(importance):
+                        feature_idx = i % len(feature_names)
+                        feature_name = feature_names[feature_idx]
+                        if feature_name not in feature_importance:
+                            feature_importance[feature_name] = 0
+                        feature_importance[feature_name] += imp
+                    
+                    # Convert to DataFrame and sort
+                    feature_df = pd.DataFrame(list(feature_importance.items()), 
+                                            columns=['Feature', 'Importance'])
+                else:
+                    feature_df = pd.DataFrame({'Feature': feature_names[:len(importance)], 
+                                             'Importance': importance})
+            else:
+                feature_df = pd.DataFrame({'Feature': [f'Feature_{i}' for i in range(len(importance))], 
+                                         'Importance': importance})
+            
+            feature_df = feature_df.sort_values('Importance', ascending=False).head(20)
+            
+            # Plot
+            bars = axes[idx].barh(range(len(feature_df)), feature_df['Importance'], 
+                                 color='skyblue', alpha=0.8)
+            axes[idx].set_yticks(range(len(feature_df)))
+            axes[idx].set_yticklabels(feature_df['Feature'])
+            axes[idx].set_xlabel('Importance')
+            axes[idx].set_title(f'{model_key} - Top 20 Feature Importance', 
+                               fontsize=12, fontweight='bold')
+            axes[idx].grid(axis='x', alpha=0.3)
+            
+            # Add value labels
+            for i, (bar, value) in enumerate(zip(bars, feature_df['Importance'])):
+                axes[idx].text(value + 0.001, bar.get_y() + bar.get_height()/2, 
+                              f'{value:.3f}', va='center', ha='left', fontsize=8)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(plots_dir, "feature_importance_analysis.png"), dpi=300, bbox_inches='tight')
+        plt.close()
+
+    #####################################
+    # UPDATED MODEL BUILDING FUNCTIONS
+    #####################################
+    
+    def build_cnn_lstm_model(self, input_shape, pair_or_bagging=None):
+        """Build a CNN-LSTM hybrid model with hyperparameters loaded from JSON."""
+        # Get hyperparameters from loaded JSON files
+        if pair_or_bagging:
+            hyperparams = self.get_hyperparameters('cnn_lstm', pair_or_bagging)
+            logger.info(f"Using hyperparameters for {pair_or_bagging} CNN-LSTM: {hyperparams}")
+        else:
+            # Fallback to default hyperparameters
+            hyperparams = {
+                'cnn_filters': 64,
+                'cnn_kernel_size': 3,
+                'lstm_units': 100,
+                'dropout_rate': 0.3,
+                'learning_rate': 0.001
+            }
+            logger.info(f"Using default hyperparameters for CNN-LSTM: {hyperparams}")
+        
+        model = Sequential()
+        
+        # CNN layers
+        model.add(Conv1D(filters=hyperparams['cnn_filters'], 
+                        kernel_size=hyperparams['cnn_kernel_size'], 
+                        activation='relu', 
+                        input_shape=input_shape))
+        model.add(BatchNormalization())
+        model.add(MaxPooling1D(pool_size=2))
+        model.add(Dropout(hyperparams['dropout_rate']))
+        
+        # Additional CNN layers
+        model.add(Conv1D(filters=hyperparams['cnn_filters'] * 2, 
+                        kernel_size=hyperparams['cnn_kernel_size'], 
+                        activation='relu'))
+        model.add(BatchNormalization())
+        model.add(MaxPooling1D(pool_size=2))
+        model.add(Dropout(hyperparams['dropout_rate']))
+        
+        # LSTM layers
+        model.add(LSTM(units=hyperparams['lstm_units'], return_sequences=True))
+        model.add(Dropout(hyperparams['dropout_rate']))
+        model.add(LSTM(units=hyperparams['lstm_units'] // 2))
+        model.add(Dropout(hyperparams['dropout_rate']))
+        
+        # Output layer
+        model.add(Dense(1, activation='sigmoid'))
+        
+        # Compile the model with gradient clipping to prevent NaN losses
+        optimizer = Adam(
+            learning_rate=hyperparams['learning_rate'], 
+            clipnorm=1.0  # Add gradient clipping
+        )
+        model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
+        
+        return model
+    
+    def build_tft_model(self, input_dim, pair_or_bagging=None):
+        """Build a simplified Temporal Fusion Transformer model with hyperparameters loaded from JSON."""
+        # Get hyperparameters from loaded JSON files
+        if pair_or_bagging:
+            hyperparams = self.get_hyperparameters('tft', pair_or_bagging)
+            logger.info(f"Using hyperparameters for {pair_or_bagging} TFT: {hyperparams}")
+        else:
+            # Fallback to default hyperparameters
+            hyperparams = {
+                'hidden_units': 64,
+                'num_heads': 4,
+                'dropout_rate': 0.2,
+                'learning_rate': 0.001
+            }
+            logger.info(f"Using default hyperparameters for TFT: {hyperparams}")
+        
+        # Input
+        inputs = Input(shape=(self.config['window_size'], input_dim))
+        
+        # Multi-head attention
+        attention_output = MultiHeadAttention(
+            num_heads=hyperparams['num_heads'], 
+            key_dim=hyperparams['hidden_units'] // hyperparams['num_heads']
+        )(inputs, inputs)
+        
+        # Residual connection and normalization
+        x = tf.keras.layers.add([inputs, attention_output])
+        x = BatchNormalization()(x)
+        
+        # Feed forward network
+        ffn = Dense(hyperparams['hidden_units'], activation='relu', kernel_initializer='he_normal')(x)
+        ffn = Dropout(hyperparams['dropout_rate'])(ffn)
+        ffn = Dense(input_dim, kernel_initializer='he_normal')(ffn)
+        
+        # Residual connection and normalization
+        x = tf.keras.layers.add([x, ffn])
+        x = BatchNormalization()(x)
+        
+        # LSTM layers for sequence processing
+        x = LSTM(units=hyperparams['hidden_units'], return_sequences=True)(x)
+        x = Dropout(hyperparams['dropout_rate'])(x)
+        x = LSTM(units=hyperparams['hidden_units'])(x)
+        x = Dropout(hyperparams['dropout_rate'])(x)
+        
+        # Output
+        outputs = Dense(1, activation='sigmoid', kernel_initializer='glorot_uniform')(x)
+        
+        # Create and compile model with gradient clipping
+        model = Model(inputs=inputs, outputs=outputs)
+        optimizer = Adam(
+            learning_rate=hyperparams['learning_rate'],
+            clipnorm=1.0  # Add gradient clipping
+        )
+        model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
+        
+        return model
+    
+    def build_xgboost_model(self, pair_or_bagging=None):
+        """Build an XGBoost model with hyperparameters loaded from JSON."""
+        # Get hyperparameters from loaded JSON files
+        if pair_or_bagging:
+            hyperparams = self.get_hyperparameters('xgboost', pair_or_bagging)
+            logger.info(f"Using hyperparameters for {pair_or_bagging} XGBoost: {hyperparams}")
+        else:
+            # Fallback to default hyperparameters
+            hyperparams = {
+                'max_depth': 5,
+                'learning_rate': 0.1,
+                'n_estimators': 100,
+                'subsample': 0.8,
+                'colsample_bytree': 0.8,
+                'gamma': 0,
+                'reg_alpha': 0,
+                'reg_lambda': 1,
+                'objective': 'binary:logistic'
+            }
+            logger.info(f"Using default hyperparameters for XGBoost: {hyperparams}")
+        
+        model = xgb.XGBClassifier(
+            objective=hyperparams['objective'],
+            max_depth=hyperparams['max_depth'],
+            learning_rate=hyperparams['learning_rate'],
+            n_estimators=hyperparams['n_estimators'],
+            subsample=hyperparams['subsample'],
+            colsample_bytree=hyperparams['colsample_bytree'],
+            gamma=hyperparams['gamma'],
+            reg_alpha=hyperparams['reg_alpha'],
+            reg_lambda=hyperparams['reg_lambda'],
+            random_state=self.config['random_state']
+        )
+        
+        return model
     
     def load_data(self, data_paths=None):
         """Load data from CSV files."""
@@ -230,10 +1094,9 @@ class ForexPrediction:
         
         return self.preprocessed_data
     
-    #####################################
-    # STEP 2: FEATURE ENHANCEMENT
-    #####################################
-    
+    # Continue from the previous file...
+# Adding the remaining methods to complete the implementation
+
     def calculate_technical_indicators(self):
         """Calculate technical indicators for each currency pair."""
         logger.info("Calculating technical indicators")
@@ -534,10 +1397,6 @@ class ForexPrediction:
         
         return self.bagging_data
     
-    #####################################
-    # STEP 3: MODEL DEVELOPMENT
-    #####################################
-    
     def prepare_model_data(self, data, is_lstm=True):
         """Prepare data for model training."""
         # Extract features and target
@@ -574,313 +1433,12 @@ class ForexPrediction:
             
             return X_lagged, y_lagged, scaler, X.columns.tolist()
     
-    def build_cnn_lstm_model(self, input_shape, hyperparams=None):
-        """Build a CNN-LSTM hybrid model."""
-        if hyperparams is None:
-            # Get the current pair being processed - attempt to detect from stack trace
-            import traceback
-            stack = traceback.extract_stack()
-            current_pair = None
-            
-            for frame in reversed(stack):
-                for pair in self.config['currency_pairs']:
-                    if pair in str(frame):
-                        current_pair = pair
-                        break
-                if 'Bagging' in str(frame):
-                    current_pair = 'Bagging'
-                    break
-                if current_pair:
-                    break
-            
-            # Use best hyperparameters based on the detected pair
-            if current_pair == 'EURUSD':
-                hyperparams = {
-                    'cnn_filters': 128,
-                    'cnn_kernel_size': 5,
-                    'lstm_units': 125,
-                    'dropout_rate': 0.2,
-                    'learning_rate': 0.007939391616899097
-                }
-                logger.info(f"Using best hyperparameters for EURUSD CNN-LSTM: {hyperparams}")
-            elif current_pair == 'GBPUSD':
-                hyperparams = {
-                    'cnn_filters': 128,
-                    'cnn_kernel_size': 5,
-                    'lstm_units': 100,
-                    'dropout_rate': 0.1,
-                    'learning_rate': 0.00827435928160214
-                }
-                logger.info(f"Using best hyperparameters for GBPUSD CNN-LSTM: {hyperparams}")
-            elif current_pair == 'USDJPY':
-                hyperparams = {
-                    'cnn_filters': 128,
-                    'cnn_kernel_size': 5,
-                    'lstm_units': 125,
-                    'dropout_rate': 0.5,
-                    'learning_rate': 0.0024266085218893753
-                }
-                logger.info(f"Using best hyperparameters for USDJPY CNN-LSTM: {hyperparams}")
-            elif current_pair == 'Bagging':
-                hyperparams = {
-                    'cnn_filters': 64,
-                    'cnn_kernel_size': 3,
-                    'lstm_units': 50,
-                    'dropout_rate': 0.2,
-                    'learning_rate': 0.008666813498020145
-                }
-                logger.info(f"Using best hyperparameters for Bagging CNN-LSTM: {hyperparams}")
-            else:
-                # Default hyperparameters if detection fails
-                hyperparams = {
-                    'cnn_filters': 64,
-                    'cnn_kernel_size': 3,
-                    'lstm_units': 100,
-                    'dropout_rate': 0.3,
-                    'learning_rate': 0.001
-                }
-        
-        model = Sequential()
-        
-        # CNN layers
-        model.add(Conv1D(filters=hyperparams['cnn_filters'], 
-                        kernel_size=hyperparams['cnn_kernel_size'], 
-                        activation='relu', 
-                        input_shape=input_shape))
-        model.add(BatchNormalization())
-        model.add(MaxPooling1D(pool_size=2))
-        model.add(Dropout(hyperparams['dropout_rate']))
-        
-        # Additional CNN layers
-        model.add(Conv1D(filters=hyperparams['cnn_filters'] * 2, kernel_size=hyperparams['cnn_kernel_size'], activation='relu'))
-        model.add(BatchNormalization())
-        model.add(MaxPooling1D(pool_size=2))
-        model.add(Dropout(hyperparams['dropout_rate']))
-        
-        # LSTM layers
-        model.add(LSTM(units=hyperparams['lstm_units'], return_sequences=True))
-        model.add(Dropout(hyperparams['dropout_rate']))
-        model.add(LSTM(units=hyperparams['lstm_units'] // 2))
-        model.add(Dropout(hyperparams['dropout_rate']))
-        
-        # Output layer
-        model.add(Dense(1, activation='sigmoid'))
-        
-        # Compile the model with gradient clipping to prevent NaN losses
-        optimizer = Adam(
-            learning_rate=hyperparams['learning_rate'], 
-            clipnorm=1.0  # Add gradient clipping
-        )
-        model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
-        
-        return model
-    
-    def build_tft_model(self, input_dim, hyperparams=None):
-        """Build a simplified Temporal Fusion Transformer model using Keras."""
-        if hyperparams is None:
-            # Get the current pair being processed - attempt to detect from stack trace
-            import traceback
-            stack = traceback.extract_stack()
-            current_pair = None
-            
-            for frame in reversed(stack):
-                for pair in self.config['currency_pairs']:
-                    if pair in str(frame):
-                        current_pair = pair
-                        break
-                if 'Bagging' in str(frame):
-                    current_pair = 'Bagging'
-                    break
-                if current_pair:
-                    break
-            
-            # Use best hyperparameters based on the detected pair
-            if current_pair == 'EURUSD':
-                hyperparams = {
-                    'hidden_units': 96,
-                    'num_heads': 8,
-                    'dropout_rate': 0.30000000000000004,
-                    'learning_rate': 0.0003415207399054917
-                }
-                logger.info(f"Using best hyperparameters for EURUSD TFT: {hyperparams}")
-            elif current_pair == 'GBPUSD':
-                hyperparams = {
-                    'hidden_units': 64,
-                    'num_heads': 6,
-                    'dropout_rate': 0.30000000000000004,
-                    'learning_rate': 0.007986228170888614
-                }
-                logger.info(f"Using best hyperparameters for GBPUSD TFT: {hyperparams}")
-            elif current_pair == 'USDJPY':
-                hyperparams = {
-                    'hidden_units': 64,
-                    'num_heads': 8,
-                    'dropout_rate': 0.4,
-                    'learning_rate': 0.009628254659726812
-                }
-                logger.info(f"Using best hyperparameters for USDJPY TFT: {hyperparams}")
-            elif current_pair == 'Bagging':
-                hyperparams = {
-                    'hidden_units': 64,
-                    'num_heads': 2,
-                    'dropout_rate': 0.5,
-                    'learning_rate': 0.0003245051346474138
-                }
-                logger.info(f"Using best hyperparameters for Bagging TFT: {hyperparams}")
-            else:
-                # Default hyperparameters if detection fails
-                hyperparams = {
-                    'hidden_units': 64,
-                    'num_heads': 4,
-                    'dropout_rate': 0.2,
-                    'learning_rate': 0.001
-                }
-        
-        # Input
-        inputs = Input(shape=(self.config['window_size'], input_dim))
-        
-        # Multi-head attention
-        attention_output = MultiHeadAttention(
-            num_heads=hyperparams['num_heads'], 
-            key_dim=hyperparams['hidden_units'] // hyperparams['num_heads']
-        )(inputs, inputs)
-        
-        # Residual connection and normalization
-        x = tf.keras.layers.add([inputs, attention_output])
-        x = BatchNormalization()(x)
-        
-        # Feed forward network
-        ffn = Dense(hyperparams['hidden_units'], activation='relu', kernel_initializer='he_normal')(x)
-        ffn = Dropout(hyperparams['dropout_rate'])(ffn)
-        ffn = Dense(input_dim, kernel_initializer='he_normal')(ffn)
-        
-        # Residual connection and normalization
-        x = tf.keras.layers.add([x, ffn])
-        x = BatchNormalization()(x)
-        
-        # LSTM layers for sequence processing
-        x = LSTM(units=hyperparams['hidden_units'], return_sequences=True)(x)
-        x = Dropout(hyperparams['dropout_rate'])(x)
-        x = LSTM(units=hyperparams['hidden_units'])(x)
-        x = Dropout(hyperparams['dropout_rate'])(x)
-        
-        # Output
-        outputs = Dense(1, activation='sigmoid', kernel_initializer='glorot_uniform')(x)
-        
-        # Create and compile model with gradient clipping
-        model = Model(inputs=inputs, outputs=outputs)
-        optimizer = Adam(
-            learning_rate=hyperparams['learning_rate'],
-            clipnorm=1.0  # Add gradient clipping
-        )
-        model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
-        
-        return model
-    
-    def build_xgboost_model(self, hyperparams=None):
-        """Build an XGBoost model."""
-        if hyperparams is None:
-            # Get the current pair being processed - attempt to detect from stack trace
-            import traceback
-            stack = traceback.extract_stack()
-            current_pair = None
-            
-            for frame in reversed(stack):
-                for pair in self.config['currency_pairs']:
-                    if pair in str(frame):
-                        current_pair = pair
-                        break
-                if 'Bagging' in str(frame):
-                    current_pair = 'Bagging'
-                    break
-                if current_pair:
-                    break
-                    
-            # Use best hyperparameters based on the detected pair
-            if current_pair == 'EURUSD':
-                hyperparams = {
-                    'max_depth': 4,
-                    'learning_rate': 0.05919941391649613,
-                    'n_estimators': 150,
-                    'subsample': 0.9,
-                    'colsample_bytree': 0.6,
-                    'gamma': 3.0461476893452946,
-                    'reg_alpha': 1.940937663027804,
-                    'reg_lambda': 4.955124273045923,
-                    'objective': 'binary:logistic'
-                }
-                logger.info(f"Using best hyperparameters for EURUSD XGBoost: {hyperparams}")
-            elif current_pair == 'GBPUSD':
-                hyperparams = {
-                    'max_depth': 8,
-                    'learning_rate': 0.01872440019277413,
-                    'n_estimators': 150,
-                    'subsample': 0.9,
-                    'colsample_bytree': 0.8,
-                    'gamma': 3.7200984174938254,
-                    'reg_alpha': 1.278513516331774,
-                    'reg_lambda': 3.2349628585550487,
-                    'objective': 'binary:logistic'
-                }
-                logger.info(f"Using best hyperparameters for GBPUSD XGBoost: {hyperparams}")
-            elif current_pair == 'USDJPY':
-                hyperparams = {
-                    'max_depth': 8,
-                    'learning_rate': 0.1188186982268055,
-                    'n_estimators': 200,
-                    'subsample': 0.9,
-                    'colsample_bytree': 0.8,
-                    'gamma': 0.1329340381973978,
-                    'reg_alpha': 4.391622738070774,
-                    'reg_lambda': 3.8280677307920676,
-                    'objective': 'binary:logistic'
-                }
-                logger.info(f"Using best hyperparameters for USDJPY XGBoost: {hyperparams}")
-            elif current_pair == 'Bagging':
-                hyperparams = {
-                    'max_depth': 9,
-                    'learning_rate': 0.07965814559294243,
-                    'n_estimators': 200,
-                    'subsample': 0.9,
-                    'colsample_bytree': 0.8,
-                    'gamma': 1.9798462028411725,
-                    'reg_alpha': 2.8018284766159027,
-                    'reg_lambda': 1.554075905250839,
-                    'objective': 'binary:logistic'
-                }
-                logger.info(f"Using best hyperparameters for Bagging XGBoost: {hyperparams}")
-            else:
-                # Default hyperparameters if detection fails
-                hyperparams = {
-                    'max_depth': 5,
-                    'learning_rate': 0.1,
-                    'n_estimators': 100,
-                    'subsample': 0.8,
-                    'colsample_bytree': 0.8,
-                    'gamma': 0,
-                    'reg_alpha': 0,
-                    'reg_lambda': 1,
-                    'objective': 'binary:logistic'
-                }
-        
-        model = xgb.XGBClassifier(
-            objective=hyperparams['objective'],
-            max_depth=hyperparams['max_depth'],
-            learning_rate=hyperparams['learning_rate'],
-            n_estimators=hyperparams['n_estimators'],
-            subsample=hyperparams['subsample'],
-            colsample_bytree=hyperparams['colsample_bytree'],
-            gamma=hyperparams['gamma'],
-            reg_alpha=hyperparams['reg_alpha'],
-            reg_lambda=hyperparams['reg_lambda'],
-            random_state=self.config['random_state']
-        )
-        
-        return model
-    
     def train_models(self):
-        """Train all models on all currency pairs."""
+        """Train all models on all currency pairs with enhanced visualization."""
         logger.info("Starting model training")
+        
+        # Create data visualizations before training
+        self.create_data_visualizations()
         
         # Define callbacks for deep learning models
         callbacks = [
@@ -915,8 +1473,8 @@ class ForexPrediction:
                 
                 input_shape = (X_train.shape[1], X_train.shape[2])
                 
-                # Initialize model
-                model = self.build_cnn_lstm_model(input_shape)
+                # Initialize model with pair-specific hyperparameters
+                model = self.build_cnn_lstm_model(input_shape, pair)
                 
                 # Create model checkpoint callback
                 checkpoint_path = os.path.join(models_dir, f"{pair}_cnn_lstm_best.keras")
@@ -951,21 +1509,8 @@ class ForexPrediction:
                     'history': history.history
                 }
                 
-                # Plot training history
-                plt.figure(figsize=(12, 4))
-                plt.subplot(1, 2, 1)
-                plt.plot(history.history['loss'], label='Training Loss')
-                plt.plot(history.history['val_loss'], label='Validation Loss')
-                plt.title(f'{pair} CNN-LSTM Loss')
-                plt.legend()
-                plt.subplot(1, 2, 2)
-                plt.plot(history.history['accuracy'], label='Training Accuracy')
-                plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-                plt.title(f'{pair} CNN-LSTM Accuracy')
-                plt.legend()
-                plt.tight_layout()
-                plt.savefig(os.path.join(plots_dir, f"{pair}_cnn_lstm_history.png"))
-                plt.close()
+                # Create training visualizations
+                self.create_training_visualizations(f"{pair}_cnn_lstm", {'history': history.history})
                 
                 logger.info(f"CNN-LSTM model for {pair} trained successfully")
             
@@ -989,8 +1534,8 @@ class ForexPrediction:
                 
                 input_dim = X_train.shape[2]
                 
-                # Initialize model
-                model = self.build_tft_model(input_dim)
+                # Initialize model with pair-specific hyperparameters
+                model = self.build_tft_model(input_dim, pair)
                 
                 # Create model checkpoint callback
                 checkpoint_path = os.path.join(models_dir, f"{pair}_tft_best.keras")
@@ -1025,21 +1570,8 @@ class ForexPrediction:
                     'history': history.history
                 }
                 
-                # Plot training history
-                plt.figure(figsize=(12, 4))
-                plt.subplot(1, 2, 1)
-                plt.plot(history.history['loss'], label='Training Loss')
-                plt.plot(history.history['val_loss'], label='Validation Loss')
-                plt.title(f'{pair} TFT Loss')
-                plt.legend()
-                plt.subplot(1, 2, 2)
-                plt.plot(history.history['accuracy'], label='Training Accuracy')
-                plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-                plt.title(f'{pair} TFT Accuracy')
-                plt.legend()
-                plt.tight_layout()
-                plt.savefig(os.path.join(plots_dir, f"{pair}_tft_history.png"))
-                plt.close()
+                # Create training visualizations
+                self.create_training_visualizations(f"{pair}_tft", {'history': history.history})
                 
                 logger.info(f"TFT model for {pair} trained successfully")
             
@@ -1061,14 +1593,13 @@ class ForexPrediction:
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
                 X_train, y_train = X_train[:-val_size], y_train[:-val_size]
                 
-                # Initialize model
-                model = self.build_xgboost_model()
+                # Initialize model with pair-specific hyperparameters
+                model = self.build_xgboost_model(pair)
                 
                 # Train the model
                 model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
-                    # early_stopping_rounds=20,
                     verbose=1
                 )
                 
@@ -1083,14 +1614,6 @@ class ForexPrediction:
                     'scaler': scaler,
                     'feature_names': feature_names
                 }
-                
-                # Plot feature importance
-                plt.figure(figsize=(12, 8))
-                xgb.plot_importance(model, max_num_features=20)
-                plt.title(f'{pair} XGBoost Feature Importance')
-                plt.tight_layout()
-                plt.savefig(os.path.join(plots_dir, f"{pair}_xgboost_importance.png"))
-                plt.close()
                 
                 logger.info(f"XGBoost model for {pair} trained successfully")
         
@@ -1120,8 +1643,8 @@ class ForexPrediction:
                 
                 input_shape = (X_train.shape[1], X_train.shape[2])
                 
-                # Initialize model
-                model = self.build_cnn_lstm_model(input_shape)
+                # Initialize model with bagging-specific hyperparameters
+                model = self.build_cnn_lstm_model(input_shape, 'Bagging')
                 
                 # Create model checkpoint callback
                 checkpoint_path = os.path.join(models_dir, "Bagging_cnn_lstm_best.keras")
@@ -1156,21 +1679,8 @@ class ForexPrediction:
                     'history': history.history
                 }
                 
-                # Plot training history
-                plt.figure(figsize=(12, 4))
-                plt.subplot(1, 2, 1)
-                plt.plot(history.history['loss'], label='Training Loss')
-                plt.plot(history.history['val_loss'], label='Validation Loss')
-                plt.title('Bagging CNN-LSTM Loss')
-                plt.legend()
-                plt.subplot(1, 2, 2)
-                plt.plot(history.history['accuracy'], label='Training Accuracy')
-                plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-                plt.title('Bagging CNN-LSTM Accuracy')
-                plt.legend()
-                plt.tight_layout()
-                plt.savefig(os.path.join(plots_dir, "Bagging_cnn_lstm_history.png"))
-                plt.close()
+                # Create training visualizations
+                self.create_training_visualizations("Bagging_cnn_lstm", {'history': history.history})
                 
                 logger.info("Bagging CNN-LSTM model trained successfully")
             
@@ -1194,8 +1704,8 @@ class ForexPrediction:
                 
                 input_dim = X_train.shape[2]
                 
-                # Initialize model
-                model = self.build_tft_model(input_dim)
+                # Initialize model with bagging-specific hyperparameters
+                model = self.build_tft_model(input_dim, 'Bagging')
                 
                 # Create model checkpoint callback
                 checkpoint_path = os.path.join(models_dir, "Bagging_tft_best.keras")
@@ -1229,21 +1739,8 @@ class ForexPrediction:
                     'history': history.history
                 }
                 
-                # Plot training history
-                plt.figure(figsize=(12, 4))
-                plt.subplot(1, 2, 1)
-                plt.plot(history.history['loss'], label='Training Loss')
-                plt.plot(history.history['val_loss'], label='Validation Loss')
-                plt.title('Bagging TFT Loss')
-                plt.legend()
-                plt.subplot(1, 2, 2)
-                plt.plot(history.history['accuracy'], label='Training Accuracy')
-                plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-                plt.title('Bagging TFT Accuracy')
-                plt.legend()
-                plt.tight_layout()
-                plt.savefig(os.path.join(plots_dir, "Bagging_tft_history.png"))
-                plt.close()
+                # Create training visualizations
+                self.create_training_visualizations("Bagging_tft", {'history': history.history})
                 
                 logger.info("Bagging TFT model trained successfully")
             
@@ -1265,14 +1762,13 @@ class ForexPrediction:
                 X_val, y_val = X_train[-val_size:], y_train[-val_size:]
                 X_train, y_train = X_train[:-val_size], y_train[:-val_size]
                 
-                # Initialize model
-                model = self.build_xgboost_model()
+                # Initialize model with bagging-specific hyperparameters
+                model = self.build_xgboost_model('Bagging')
                 
                 # Train the model
                 model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
-                    # early_stopping_rounds=20,
                     verbose=1
                 )
                 
@@ -1288,183 +1784,12 @@ class ForexPrediction:
                     'feature_names': feature_names
                 }
                 
-                # Plot feature importance
-                plt.figure(figsize=(12, 8))
-                xgb.plot_importance(model, max_num_features=20)
-                plt.title('Bagging XGBoost Feature Importance')
-                plt.tight_layout()
-                plt.savefig(os.path.join(plots_dir, "Bagging_xgboost_importance.png"))
-                plt.close()
-                
                 logger.info("Bagging XGBoost model trained successfully")
         
         return self.models
     
-    def hyperparameter_tuning(self, model_type, pair):
-        """Tune hyperparameters for the specified model and currency pair."""
-        logger.info(f"Tuning hyperparameters for {model_type} model on {pair}")
-        
-        if model_type not in ['cnn_lstm', 'tft', 'xgboost']:
-            logger.error(f"Unknown model type: {model_type}")
-            return None
-        
-        # Get data
-        if pair == 'Bagging':
-            train_data = self.bagging_data['train']
-        else:
-            train_data = self.selected_features[pair]['train']
-        
-        # Define the objective function for Optuna
-        def objective(trial):
-            if model_type == 'cnn_lstm':
-                # Prepare data for LSTM
-                X_train, y_train, _, _ = self.prepare_model_data(train_data, is_lstm=True)
-                
-                # Handle NaN values
-                X_train = np.nan_to_num(X_train)
-                y_train = np.nan_to_num(y_train)
-                
-                # Split training and validation sets
-                val_size = int(len(X_train) * self.config['validation_size'])
-                X_val, y_val = X_train[-val_size:], y_train[-val_size:]
-                X_train, y_train = X_train[:-val_size], y_train[:-val_size]
-                
-                input_shape = (X_train.shape[1], X_train.shape[2])
-                
-                # Define hyperparameters to tune
-                hyperparams = {
-                    'cnn_filters': trial.suggest_int('cnn_filters', 32, 128, 32),
-                    'cnn_kernel_size': trial.suggest_int('cnn_kernel_size', 2, 5),
-                    'lstm_units': trial.suggest_int('lstm_units', 50, 200, 25),
-                    'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5, step=0.1),
-                    'learning_rate': trial.suggest_float('learning_rate', 1e-4, 1e-2, log=True)
-                }
-                
-                # Build model with trial hyperparameters
-                model = self.build_cnn_lstm_model(input_shape, hyperparams)
-                
-                # Define callbacks
-                callbacks = [
-                    EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-                ]
-                
-                # Train the model
-                history = model.fit(
-                    X_train, y_train,
-                    validation_data=(X_val, y_val),
-                    epochs=50,  # Reduce epochs for faster tuning
-                    batch_size=self.config['batch_size'],
-                    callbacks=callbacks,
-                    verbose=0
-                )
-                
-                # Return the validation accuracy
-                return history.history['val_accuracy'][-1]
-            
-            elif model_type == 'tft':
-                # Prepare data for TFT
-                X_train, y_train, _, _ = self.prepare_model_data(train_data, is_lstm=True)
-                
-                # Handle NaN values
-                X_train = np.nan_to_num(X_train)
-                y_train = np.nan_to_num(y_train)
-                
-                # Split training and validation sets
-                val_size = int(len(X_train) * self.config['validation_size'])
-                X_val, y_val = X_train[-val_size:], y_train[-val_size:]
-                X_train, y_train = X_train[:-val_size], y_train[:-val_size]
-                
-                input_dim = X_train.shape[2]
-                
-                # Define hyperparameters to tune
-                hyperparams = {
-                    'hidden_units': trial.suggest_int('hidden_units', 32, 128, 32),
-                    'num_heads': trial.suggest_int('num_heads', 2, 8, 2),
-                    'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5, step=0.1),
-                    'learning_rate': trial.suggest_float('learning_rate', 1e-4, 1e-2, log=True)
-                }
-                
-                # Build model with trial hyperparameters
-                model = self.build_tft_model(input_dim, hyperparams)
-                
-                # Define callbacks
-                callbacks = [
-                    EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-                ]
-                
-                # Train the model
-                history = model.fit(
-                    X_train, y_train,
-                    validation_data=(X_val, y_val),
-                    epochs=50,  # Reduce epochs for faster tuning
-                    batch_size=self.config['batch_size'],
-                    callbacks=callbacks,
-                    verbose=0
-                )
-                
-                # Return the validation accuracy
-                return history.history['val_accuracy'][-1]
-            
-            elif model_type == 'xgboost':
-                # Prepare data for XGBoost
-                X_train, y_train, _, _ = self.prepare_model_data(train_data, is_lstm=False)
-                
-                # Handle NaN values
-                X_train = np.nan_to_num(X_train)
-                y_train = np.nan_to_num(y_train)
-                
-                # Split training and validation sets
-                val_size = int(len(X_train) * self.config['validation_size'])
-                X_val, y_val = X_train[-val_size:], y_train[-val_size:]
-                X_train, y_train = X_train[:-val_size], y_train[:-val_size]
-                
-                # Define hyperparameters to tune
-                hyperparams = {
-                    'max_depth': trial.suggest_int('max_depth', 3, 10),
-                    'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
-                    'n_estimators': trial.suggest_int('n_estimators', 50, 300, 50),
-                    'subsample': trial.suggest_float('subsample', 0.6, 1.0, step=0.1),
-                    'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0, step=0.1),
-                    'gamma': trial.suggest_float('gamma', 0, 5),
-                    'reg_alpha': trial.suggest_float('reg_alpha', 0, 5),
-                    'reg_lambda': trial.suggest_float('reg_lambda', 0.1, 5),
-                    'objective': 'binary:logistic'
-                }
-                
-                # Build model with trial hyperparameters
-                model = self.build_xgboost_model(hyperparams)
-                
-                # Train the model
-                model.fit(
-                    X_train, y_train,
-                    eval_set=[(X_val, y_val)],
-                    # early_stopping_rounds=10,
-                    verbose=0
-                )
-                
-                # Return the validation accuracy
-                return model.score(X_val, y_val)
-        
-        # Create and run the Optuna study
-        study = optuna.create_study(direction='maximize')
-        study.optimize(objective, n_trials=self.config['n_trials'])
-        
-        # Log the best hyperparameters
-        logger.info(f"Best hyperparameters for {model_type} on {pair}: {study.best_params}")
-        logger.info(f"Best validation accuracy: {study.best_value:.4f}")
-        
-        # Save the best hyperparameters
-        with open(os.path.join(output_dir, f"{pair}_{model_type}_best_hyperparams.json"), 'w') as f:
-            json.dump(study.best_params, f, indent=2)
-        
-        return study.best_params
-    
-    #####################################
-    # STEP 4: MODEL EVALUATION & PERFORMANCE ANALYSIS
-    #####################################
-    
     def evaluate_models(self):
-        """Evaluate all trained models on test data."""
+        """Evaluate all trained models on test data with comprehensive visualization."""
         logger.info("Starting model evaluation")
         
         results = {}
@@ -1521,6 +1846,9 @@ class ForexPrediction:
                 
                 logger.info(f"Model {model_key} test metrics: Accuracy={accuracy:.4f}, Precision={precision:.4f}, Recall={recall:.4f}, F1={f1:.4f}")
                 
+                # Create prediction visualizations
+                self.create_prediction_visualizations(model_key, y_test, y_pred, y_pred_proba, test_data)
+                
                 # Generate trading signals and evaluate performance
                 trading_performance = self.evaluate_trading_performance(pair, model_type, y_test, y_pred, test_data)
                 
@@ -1532,47 +1860,9 @@ class ForexPrediction:
                     'f1': f1,
                     'trading_performance': trading_performance
                 }
-                
-                # Plot confusion matrix
-                cm = confusion_matrix(y_test, y_pred)
-                plt.figure(figsize=(8, 6))
-                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=False)
-                plt.title(f'{model_key} Confusion Matrix')
-                plt.xlabel('Predicted Labels')
-                plt.ylabel('True Labels')
-                plt.tight_layout()
-                plt.savefig(os.path.join(plots_dir, f"{model_key}_confusion_matrix.png"))
-                plt.close()
-                
-                # Plot precision-recall curve
-                plt.figure(figsize=(8, 6))
-                precision, recall, _ = precision_recall_curve(y_test, y_pred_proba)
-                plt.plot(recall, precision, marker='.')
-                plt.title(f'{model_key} Precision-Recall Curve')
-                plt.xlabel('Recall')
-                plt.ylabel('Precision')
-                plt.tight_layout()
-                plt.savefig(os.path.join(plots_dir, f"{model_key}_precision_recall_curve.png"))
-                plt.close()
-                
-                # Plot ROC curve
-                plt.figure(figsize=(8, 6))
-                fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
-                roc_auc = roc_auc_score(y_test, y_pred_proba)
-                plt.plot(fpr, tpr, marker='.', label=f'ROC curve (area = {roc_auc:.4f})')
-                plt.plot([0, 1], [0, 1], linestyle='--')
-                plt.title(f'{model_key} ROC Curve')
-                plt.xlabel('False Positive Rate')
-                plt.ylabel('True Positive Rate')
-                plt.legend()
-                plt.tight_layout()
-                plt.savefig(os.path.join(plots_dir, f"{model_key}_roc_curve.png"))
-                plt.close()
         
-        # Evaluate Bagging Models
+        # Evaluate Bagging Models (similar structure as original, but with visualization calls)
         if self.config['use_bagging']:
-            # We need to evaluate the bagging model using the bagging test data instead
-            # of individual currency pair test data
             bagging_test_data = self.bagging_data['test']
             
             # Extract data for each currency pair
@@ -1598,7 +1888,7 @@ class ForexPrediction:
                     
                     # Generate predictions
                     if model_type in ['cnn_lstm', 'tft']:
-                        # Prepare data for LSTM models - use bagging test data with the same features
+                        # Prepare data for LSTM models
                         X_test, y_test, _, _ = self.prepare_model_data(pair_test_data, is_lstm=True)
                         
                         # Check and handle NaN values
@@ -1616,8 +1906,6 @@ class ForexPrediction:
                             y_pred = (y_pred_proba > 0.5).astype(int).flatten()
                         except Exception as e:
                             logger.error(f"Error making predictions with {model_key} on {pair}: {e}")
-                            
-                            # Skip this model evaluation
                             continue
                             
                     else:  # XGBoost
@@ -1636,8 +1924,6 @@ class ForexPrediction:
                             y_pred = (y_pred_proba > 0.5).astype(int)
                         except Exception as e:
                             logger.error(f"Error making predictions with {model_key} on {pair}: {e}")
-                            
-                            # Skip this model evaluation
                             continue
                     
                     # Calculate metrics
@@ -1648,8 +1934,10 @@ class ForexPrediction:
                     
                     logger.info(f"Model {model_key} on {pair} test metrics: Accuracy={accuracy:.4f}, Precision={precision:.4f}, Recall={recall:.4f}, F1={f1:.4f}")
                     
+                    # Create prediction visualizations
+                    self.create_prediction_visualizations(f"{model_key}_{pair}", y_test, y_pred, y_pred_proba, pair_test_data)
+                    
                     # Generate trading signals and evaluate performance
-                    # Use individual currency pair test data for evaluation
                     trading_performance = self.evaluate_trading_performance(pair, f"Bagging_{model_type}", y_test, y_pred, pair_test_data)
                     
                     # Store results
@@ -1665,8 +1953,11 @@ class ForexPrediction:
         with open(os.path.join(results_dir, 'evaluation_results.json'), 'w') as f:
             json.dump(results, f, indent=2)
         
-        # Create comparison plots
-        self.create_comparison_plots(results)
+        # Create comprehensive evaluation visualizations
+        self.create_evaluation_visualizations(results)
+        
+        # Create feature importance visualizations
+        self.create_feature_importance_visualizations()
         
         self.results = results
         return results
@@ -1816,203 +2107,10 @@ class ForexPrediction:
         
         return performance
     
-    def create_comparison_plots(self, results):
-        """Create comparison plots for all models."""
-        logger.info("Creating model comparison plots")
-        
-        # Extract performance metrics for comparison
-        model_names = []
-        annual_returns = []
-        win_rates = []
-        max_drawdowns = []
-        sharpe_ratios = []
-        buy_hold_returns = []
-        
-        for model_key, model_results in results.items():
-            if 'trading_performance' in model_results:
-                perf = model_results['trading_performance']
-                model_names.append(model_key)
-                annual_returns.append(perf['annual_return'])
-                win_rates.append(perf['win_rate'] * 100)  # Convert to percentage
-                max_drawdowns.append(perf['max_drawdown'])
-                sharpe_ratios.append(perf['sharpe_ratio'])
-                buy_hold_returns.append(perf['buy_hold_annual_return'])
-        
-        # Create bar plots for different metrics
-        plt.figure(figsize=(14, 10))
-        
-        # Annual Return comparison
-        plt.subplot(2, 2, 1)
-        plt.bar(model_names, annual_returns, color='skyblue')
-        plt.bar(model_names, buy_hold_returns, color='lightgray', alpha=0.5)
-        plt.title('Annual Return Comparison')
-        plt.ylabel('Annual Return (%)')
-        plt.xticks(rotation=90)
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-        plt.legend(['Model Return', 'Buy & Hold Return'])
-        
-        # Win Rate comparison
-        plt.subplot(2, 2, 2)
-        plt.bar(model_names, win_rates, color='lightgreen')
-        plt.title('Win Rate Comparison')
-        plt.ylabel('Win Rate (%)')
-        plt.xticks(rotation=90)
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-        
-        # Max Drawdown comparison
-        plt.subplot(2, 2, 3)
-        plt.bar(model_names, max_drawdowns, color='salmon')
-        plt.title('Maximum Drawdown Comparison')
-        plt.ylabel('Max Drawdown (%)')
-        plt.xticks(rotation=90)
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-        
-        # Sharpe Ratio comparison
-        plt.subplot(2, 2, 4)
-        plt.bar(model_names, sharpe_ratios, color='purple')
-        plt.title('Sharpe Ratio Comparison')
-        plt.ylabel('Sharpe Ratio')
-        plt.xticks(rotation=90)
-        plt.grid(axis='y', linestyle='--', alpha=0.7)
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, "model_performance_comparison.png"))
-        plt.close()
-        
-        # Create a table of results
-        table_data = []
-        for i, model in enumerate(model_names):
-            table_data.append([
-                model,
-                f"{annual_returns[i]:.2f}%",
-                f"{win_rates[i]:.2f}%",
-                f"{max_drawdowns[i]:.2f}%",
-                f"{sharpe_ratios[i]:.2f}",
-                f"{buy_hold_returns[i]:.2f}%"
-            ])
-        
-        table_cols = ['Model', 'Annual Return', 'Win Rate', 'Max Drawdown', 'Sharpe Ratio', 'Buy & Hold Return']
-        
-        plt.figure(figsize=(12, len(model_names) * 0.5 + 1))
-        plt.axis('off')
-        table = plt.table(cellText=table_data, colLabels=table_cols, loc='center', cellLoc='center')
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.scale(1, 1.5)
-        plt.title('Model Performance Comparison Table', y=1.05)
-        plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, "model_performance_table.png"))
-        plt.close()
-        
-        # Create Single vs Bagging comparison
-        if self.config['use_bagging']:
-            # Prepare data for comparison
-            currencies = self.config['currency_pairs']
-            model_types = self.config['models_to_train']
-            
-            # For each model type and metric, compare single vs bagging
-            for model_type in model_types:
-                # Annual Return comparison
-                fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-                
-                # Annual Return
-                single_returns = []
-                bagging_returns = []
-                buy_hold_returns = []
-                
-                for pair in currencies:
-                    single_key = f"{pair}_{model_type}"
-                    bagging_key = f"Bagging_{model_type}_{pair}"
-                    
-                    if single_key in results and bagging_key in results:
-                        single_returns.append(results[single_key]['trading_performance']['annual_return'])
-                        bagging_returns.append(results[bagging_key]['trading_performance']['annual_return'])
-                        buy_hold_returns.append(results[single_key]['trading_performance']['buy_hold_annual_return'])
-                
-                x = np.arange(len(currencies))
-                width = 0.25
-                
-                axes[0, 0].bar(x - width, single_returns, width, label='Single')
-                axes[0, 0].bar(x, bagging_returns, width, label='Bagging')
-                axes[0, 0].bar(x + width, buy_hold_returns, width, label='Buy & Hold')
-                axes[0, 0].set_title(f'{model_type} - Annual Return Comparison')
-                axes[0, 0].set_ylabel('Annual Return (%)')
-                axes[0, 0].set_xticks(x)
-                axes[0, 0].set_xticklabels(currencies)
-                axes[0, 0].legend()
-                axes[0, 0].grid(axis='y', linestyle='--', alpha=0.7)
-                
-                # Win Rate
-                single_win_rates = []
-                bagging_win_rates = []
-                
-                for pair in currencies:
-                    single_key = f"{pair}_{model_type}"
-                    bagging_key = f"Bagging_{model_type}_{pair}"
-                    
-                    if single_key in results and bagging_key in results:
-                        single_win_rates.append(results[single_key]['trading_performance']['win_rate'] * 100)
-                        bagging_win_rates.append(results[bagging_key]['trading_performance']['win_rate'] * 100)
-                
-                axes[0, 1].bar(x - width/2, single_win_rates, width, label='Single')
-                axes[0, 1].bar(x + width/2, bagging_win_rates, width, label='Bagging')
-                axes[0, 1].set_title(f'{model_type} - Win Rate Comparison')
-                axes[0, 1].set_ylabel('Win Rate (%)')
-                axes[0, 1].set_xticks(x)
-                axes[0, 1].set_xticklabels(currencies)
-                axes[0, 1].legend()
-                axes[0, 1].grid(axis='y', linestyle='--', alpha=0.7)
-                
-                # Max Drawdown
-                single_drawdowns = []
-                bagging_drawdowns = []
-                
-                for pair in currencies:
-                    single_key = f"{pair}_{model_type}"
-                    bagging_key = f"Bagging_{model_type}_{pair}"
-                    
-                    if single_key in results and bagging_key in results:
-                        single_drawdowns.append(results[single_key]['trading_performance']['max_drawdown'])
-                        bagging_drawdowns.append(results[bagging_key]['trading_performance']['max_drawdown'])
-                
-                axes[1, 0].bar(x - width/2, single_drawdowns, width, label='Single')
-                axes[1, 0].bar(x + width/2, bagging_drawdowns, width, label='Bagging')
-                axes[1, 0].set_title(f'{model_type} - Max Drawdown Comparison')
-                axes[1, 0].set_ylabel('Max Drawdown (%)')
-                axes[1, 0].set_xticks(x)
-                axes[1, 0].set_xticklabels(currencies)
-                axes[1, 0].legend()
-                axes[1, 0].grid(axis='y', linestyle='--', alpha=0.7)
-                
-                # Sharpe Ratio
-                single_sharpe = []
-                bagging_sharpe = []
-                
-                for pair in currencies:
-                    single_key = f"{pair}_{model_type}"
-                    bagging_key = f"Bagging_{model_type}_{pair}"
-                    
-                    if single_key in results and bagging_key in results:
-                        single_sharpe.append(results[single_key]['trading_performance']['sharpe_ratio'])
-                        bagging_sharpe.append(results[bagging_key]['trading_performance']['sharpe_ratio'])
-                
-                axes[1, 1].bar(x - width/2, single_sharpe, width, label='Single')
-                axes[1, 1].bar(x + width/2, bagging_sharpe, width, label='Bagging')
-                axes[1, 1].set_title(f'{model_type} - Sharpe Ratio Comparison')
-                axes[1, 1].set_ylabel('Sharpe Ratio')
-                axes[1, 1].set_xticks(x)
-                axes[1, 1].set_xticklabels(currencies)
-                axes[1, 1].legend()
-                axes[1, 1].grid(axis='y', linestyle='--', alpha=0.7)
-                
-                plt.tight_layout()
-                plt.savefig(os.path.join(plots_dir, f"{model_type}_single_vs_bagging.png"))
-                plt.close()
-    
     def run_pipeline(self):
-        """Run the complete pipeline."""
+        """Run the complete enhanced pipeline with comprehensive visualization."""
         start_time = time.time()
-        logger.info("Starting the Forex Prediction pipeline")
+        logger.info("Starting the Enhanced Forex Prediction pipeline")
         
         # Step 1: Data Collection & Preprocessing
         logger.info("STEP 1: Data Collection & Preprocessing")
@@ -2028,22 +2126,11 @@ class ForexPrediction:
         logger.info("STEP 3: Model Development")
         self.train_models()
         
-        # Optional: Hyperparameter Tuning
-        if self.config['hyperparameter_tuning']:
-            logger.info("Hyperparameter Tuning")
-            for model_type in self.config['models_to_train']:
-                for pair in self.config['currency_pairs']:
-                    self.hyperparameter_tuning(model_type, pair)
-                
-                # Tune bagging models
-                if self.config['use_bagging']:
-                    self.hyperparameter_tuning(model_type, 'Bagging')
-        
         # Step 4: Model Evaluation & Performance Analysis
         logger.info("STEP 4: Model Evaluation & Performance Analysis")
         results = self.evaluate_models()
         
         elapsed_time = time.time() - start_time
-        logger.info(f"Pipeline completed in {elapsed_time / 60:.2f} minutes")
+        logger.info(f"Enhanced pipeline completed in {elapsed_time / 60:.2f} minutes")
         
         return results
