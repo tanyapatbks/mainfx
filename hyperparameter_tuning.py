@@ -1,1056 +1,1160 @@
 """
-Enhanced Hyperparameter Tuning for Master's Thesis Forex Prediction
-- Advanced Bayesian optimization with multi-objective support
+Enhanced Hyperparameter Tuning for Master's Thesis
+Version: 2.0 - Advanced Optimization with Bayesian and Multi-Objective Methods
+Author: Master's Thesis Student
+Date: 2024
+
+This module provides comprehensive hyperparameter optimization including:
+- Bayesian Optimization with multiple acquisition functions
+- Multi-objective optimization (return vs risk)
+- Parallel optimization support
+- Advanced pruning strategies
 - Comprehensive visualization and reporting
-- Integration with enhanced pipeline
-- Walk-forward validation during tuning
-- Advanced pruning and early stopping strategies
 """
 
 import os
 import json
-import argparse
 import logging
 import warnings
 from datetime import datetime
-import random
+from pathlib import Path
+from typing import Dict, List, Tuple, Optional, Union, Any, Callable
+import multiprocessing as mp
+from functools import partial
+from dataclasses import dataclass
+import pickle
+import time
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-import multiprocessing
+from tqdm import tqdm
 
-# Advanced optimization libraries
+# Optimization libraries
 import optuna
-from optuna.samplers import TPESampler, CmaEsSampler, NSGAIISampler
-from optuna.pruners import MedianPruner, HyperbandPruner, PercentilePruner
-from optuna.integration import SklearnIntegration
-from optuna.visualization import plot_optimization_history, plot_param_importances
-from optuna.visualization import plot_parallel_coordinate, plot_slice
+from optuna.samplers import (TPESampler, CmaEsSampler, NSGAIISampler, 
+                           RandomSampler, GridSampler)
+from optuna.pruners import (MedianPruner, SuccessiveHalvingPruner, 
+                          HyperbandPruner, ThresholdPruner)
+from optuna.visualization import (plot_optimization_history, plot_param_importances,
+                                plot_parallel_coordinate, plot_slice, plot_contour,
+                                plot_edf, plot_intermediate_values, plot_pareto_front)
 
-# Scientific computing
-from scipy.optimize import differential_evolution
+from hyperopt import hp, fmin, tpe, Trials, STATUS_OK, STATUS_FAIL
+from hyperopt.pyll import scope
+
+import skopt
 from skopt import gp_minimize, forest_minimize, gbrt_minimize
 from skopt.space import Real, Integer, Categorical
 from skopt.utils import use_named_args
-from skopt.plots import plot_convergence, plot_objective
+from skopt.plots import plot_convergence, plot_objective, plot_evaluations
 
-# Import enhanced forex prediction system
-from forex_prediction import EnhancedForexPrediction
+# Machine Learning
+from sklearn.model_selection import TimeSeriesSplit, cross_val_score
+from sklearn.metrics import make_scorer
+import xgboost as xgb
+import lightgbm as lgb
+
+# Deep Learning
+import tensorflow as tf
+from tensorflow.keras import backend as K
+
+# Import main forex prediction module
+from forex_prediction import (
+    TradingConfig, EnhancedForexPredictor, AdvancedFeatureEngineer,
+    AdvancedCNNLSTM, AdvancedTransformer, AdvancedTradingStrategy
+)
 
 warnings.filterwarnings('ignore')
 
-# Set up enhanced logging
-log_dir = "logs"
-os.makedirs(log_dir, exist_ok=True)
-log_file = os.path.join(log_dir, f"enhanced_hyperparameter_tuning_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+# Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file),
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-class EnhancedHyperparameterOptimizer:
-    """
-    Enhanced hyperparameter optimizer for Master's thesis research.
+
+@dataclass
+class OptimizationConfig:
+    """Configuration for hyperparameter optimization"""
+    method: str = 'bayesian'  # 'bayesian', 'multi_objective', 'grid', 'random'
+    n_trials: int = 100
+    n_jobs: int = 1
+    timeout: int = 3600  # 1 hour
     
-    Features:
-    - Multi-objective optimization (return vs risk)
-    - Advanced pruning strategies
-    - Parallel optimization
-    - Comprehensive reporting
-    - Walk-forward validation
-    """
+    # Bayesian optimization
+    sampler: str = 'tpe'  # 'tpe', 'cmaes', 'random', 'grid'
+    pruner: str = 'median'  # 'median', 'hyperband', 'successive_halving', 'threshold'
     
-    def __init__(self, config=None):
-        """Initialize the enhanced optimizer."""
-        self.config = config or {}
-        self.forex_pred = None
-        self.study_results = {}
-        self.multi_objective_studies = {}
+    # Multi-objective
+    objectives: List[str] = None  # ['return', 'risk', 'sharpe']
+    
+    # Early stopping
+    early_stopping_rounds: int = 20
+    min_improvement: float = 0.001
+    
+    # Cross-validation
+    cv_folds: int = 3
+    cv_metric: str = 'sharpe_ratio'
+    
+    # Parallel optimization
+    use_parallel: bool = True
+    parallel_backend: str = 'multiprocessing'  # 'multiprocessing', 'threading'
+    
+    def __post_init__(self):
+        if self.objectives is None:
+            self.objectives = ['return', 'risk']
+
+
+class HyperparameterSpace:
+    """Define hyperparameter search spaces for different models"""
+    
+    @staticmethod
+    def get_cnn_lstm_space(trial: optuna.Trial = None, method: str = 'optuna') -> Dict:
+        """Get CNN-LSTM hyperparameter space"""
+        if method == 'optuna':
+            return {
+                # CNN parameters
+                'cnn_filters_1': trial.suggest_int('cnn_filters_1', 32, 256, step=32),
+                'cnn_filters_2': trial.suggest_int('cnn_filters_2', 64, 512, step=64),
+                'cnn_kernel_size': trial.suggest_int('cnn_kernel_size', 2, 5),
+                'cnn_activation': trial.suggest_categorical('cnn_activation', ['relu', 'elu', 'tanh']),
+                
+                # LSTM parameters
+                'lstm_units_1': trial.suggest_int('lstm_units_1', 64, 256, step=32),
+                'lstm_units_2': trial.suggest_int('lstm_units_2', 32, 128, step=16),
+                'lstm_dropout': trial.suggest_float('lstm_dropout', 0.1, 0.5),
+                'use_bidirectional': trial.suggest_categorical('use_bidirectional', [True, False]),
+                
+                # Attention parameters
+                'use_attention': trial.suggest_categorical('use_attention', [True, False]),
+                'attention_heads': trial.suggest_int('attention_heads', 4, 16, step=4),
+                
+                # Training parameters
+                'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
+                'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64]),
+                'optimizer': trial.suggest_categorical('optimizer', ['adam', 'sgd', 'rmsprop']),
+                
+                # Regularization
+                'l1_reg': trial.suggest_float('l1_reg', 1e-6, 1e-3, log=True),
+                'l2_reg': trial.suggest_float('l2_reg', 1e-6, 1e-3, log=True),
+                'dropout_rate': trial.suggest_float('dropout_rate', 0.2, 0.6),
+            }
         
-        # Enhanced optimization settings
-        self.optimization_methods = {
-            'bayesian_tpe': {
-                'sampler': TPESampler,
-                'pruner': MedianPruner,
-                'direction': 'maximize'
-            },
-            'bayesian_cmaes': {
-                'sampler': CmaEsSampler,
-                'pruner': HyperbandPruner,
-                'direction': 'maximize'
-            },
-            'multi_objective': {
-                'sampler': NSGAIISampler,
-                'pruner': PercentilePruner,
-                'directions': ['maximize', 'minimize']  # Return, Risk
+        elif method == 'hyperopt':
+            return {
+                'cnn_filters_1': hp.choice('cnn_filters_1', [32, 64, 96, 128, 160, 192, 224, 256]),
+                'cnn_filters_2': hp.choice('cnn_filters_2', [64, 128, 192, 256, 320, 384, 448, 512]),
+                'cnn_kernel_size': hp.choice('cnn_kernel_size', [2, 3, 4, 5]),
+                'cnn_activation': hp.choice('cnn_activation', ['relu', 'elu', 'tanh']),
+                
+                'lstm_units_1': hp.choice('lstm_units_1', [64, 96, 128, 160, 192, 224, 256]),
+                'lstm_units_2': hp.choice('lstm_units_2', [32, 48, 64, 80, 96, 112, 128]),
+                'lstm_dropout': hp.uniform('lstm_dropout', 0.1, 0.5),
+                'use_bidirectional': hp.choice('use_bidirectional', [True, False]),
+                
+                'use_attention': hp.choice('use_attention', [True, False]),
+                'attention_heads': hp.choice('attention_heads', [4, 8, 12, 16]),
+                
+                'learning_rate': hp.loguniform('learning_rate', np.log(1e-5), np.log(1e-2)),
+                'batch_size': hp.choice('batch_size', [16, 32, 64]),
+                'optimizer': hp.choice('optimizer', ['adam', 'sgd', 'rmsprop']),
+                
+                'l1_reg': hp.loguniform('l1_reg', np.log(1e-6), np.log(1e-3)),
+                'l2_reg': hp.loguniform('l2_reg', np.log(1e-6), np.log(1e-3)),
+                'dropout_rate': hp.uniform('dropout_rate', 0.2, 0.6),
             }
-        }
         
-        logger.info("Enhanced Hyperparameter Optimizer initialized for Master's thesis")
+        elif method == 'skopt':
+            return [
+                Integer(32, 256, name='cnn_filters_1'),
+                Integer(64, 512, name='cnn_filters_2'),
+                Integer(2, 5, name='cnn_kernel_size'),
+                Categorical(['relu', 'elu', 'tanh'], name='cnn_activation'),
+                
+                Integer(64, 256, name='lstm_units_1'),
+                Integer(32, 128, name='lstm_units_2'),
+                Real(0.1, 0.5, name='lstm_dropout'),
+                Categorical([True, False], name='use_bidirectional'),
+                
+                Categorical([True, False], name='use_attention'),
+                Integer(4, 16, name='attention_heads'),
+                
+                Real(1e-5, 1e-2, prior='log-uniform', name='learning_rate'),
+                Categorical([16, 32, 64], name='batch_size'),
+                Categorical(['adam', 'sgd', 'rmsprop'], name='optimizer'),
+                
+                Real(1e-6, 1e-3, prior='log-uniform', name='l1_reg'),
+                Real(1e-6, 1e-3, prior='log-uniform', name='l2_reg'),
+                Real(0.2, 0.6, name='dropout_rate'),
+            ]
     
-    def get_enhanced_search_space(self, model_type):
-        """Define enhanced search spaces for thesis research."""
-        if model_type == 'enhanced_cnn_lstm':
+    @staticmethod
+    def get_transformer_space(trial: optuna.Trial = None, method: str = 'optuna') -> Dict:
+        """Get Transformer hyperparameter space"""
+        if method == 'optuna':
             return {
-                'cnn_filters': Integer(32, 256, name='cnn_filters'),
-                'cnn_kernel_size': Integer(2, 7, name='cnn_kernel_size'),
-                'lstm_units': Integer(50, 300, name='lstm_units'),
-                'dropout_rate': Real(0.1, 0.7, name='dropout_rate'),
-                'learning_rate': Real(1e-5, 5e-2, prior='log-uniform', name='learning_rate'),
-                # Additional advanced parameters
-                'cnn_layers': Integer(1, 3, name='cnn_layers'),
-                'lstm_layers': Integer(1, 3, name='lstm_layers'),
-                'attention_heads': Integer(2, 8, name='attention_heads'),
-                'batch_norm': Categorical([True, False], name='batch_norm'),
-                'l1_reg': Real(1e-6, 1e-2, prior='log-uniform', name='l1_reg'),
-                'l2_reg': Real(1e-6, 1e-2, prior='log-uniform', name='l2_reg')
-            }
-        elif model_type == 'advanced_tft':
-            return {
-                'hidden_units': Integer(32, 256, name='hidden_units'),
-                'num_heads': Integer(2, 16, name='num_heads'),
-                'dropout_rate': Real(0.1, 0.6, name='dropout_rate'),
-                'learning_rate': Real(1e-5, 5e-2, prior='log-uniform', name='learning_rate'),
-                # Additional TFT parameters
-                'num_encoder_layers': Integer(1, 4, name='num_encoder_layers'),
-                'num_decoder_layers': Integer(1, 4, name='num_decoder_layers'),
-                'feed_forward_dim': Integer(64, 512, name='feed_forward_dim'),
-                'attention_dropout': Real(0.0, 0.3, name='attention_dropout'),
-                'layer_norm': Categorical([True, False], name='layer_norm'),
-                'residual_connections': Categorical([True, False], name='residual_connections')
-            }
-        elif model_type == 'enhanced_xgboost':
-            return {
-                'max_depth': Integer(3, 15, name='max_depth'),
-                'learning_rate': Real(0.001, 0.5, prior='log-uniform', name='learning_rate'),
-                'n_estimators': Integer(50, 1000, name='n_estimators'),
-                'subsample': Real(0.5, 1.0, name='subsample'),
-                'colsample_bytree': Real(0.5, 1.0, name='colsample_bytree'),
-                'colsample_bylevel': Real(0.5, 1.0, name='colsample_bylevel'),
-                'colsample_bynode': Real(0.5, 1.0, name='colsample_bynode'),
-                'gamma': Real(0, 10, name='gamma'),
-                'reg_alpha': Real(0, 10, name='reg_alpha'),
-                'reg_lambda': Real(0.1, 10, name='reg_lambda'),
-                'min_child_weight': Integer(1, 20, name='min_child_weight'),
-                'max_delta_step': Integer(0, 10, name='max_delta_step'),
-                # Advanced XGBoost parameters
-                'grow_policy': Categorical(['depthwise', 'lossguide'], name='grow_policy'),
-                'max_leaves': Integer(0, 100, name='max_leaves'),
-                'scale_pos_weight': Real(0.5, 2.0, name='scale_pos_weight')
+                # Architecture
+                'num_heads': trial.suggest_int('num_heads', 4, 16, step=2),
+                'head_size': trial.suggest_int('head_size', 32, 128, step=16),
+                'num_blocks': trial.suggest_int('num_blocks', 2, 6),
+                'ff_dim': trial.suggest_int('ff_dim', 128, 512, step=64),
+                
+                # Embeddings
+                'embedding_dim': trial.suggest_int('embedding_dim', 64, 256, step=32),
+                'positional_encoding': trial.suggest_categorical('positional_encoding', 
+                                                                ['sinusoidal', 'learned']),
+                
+                # Regularization
+                'dropout_rate': trial.suggest_float('dropout_rate', 0.1, 0.5),
+                'attention_dropout': trial.suggest_float('attention_dropout', 0.0, 0.3),
+                
+                # Training
+                'learning_rate': trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True),
+                'warmup_steps': trial.suggest_int('warmup_steps', 100, 1000, step=100),
+                'batch_size': trial.suggest_categorical('batch_size', [16, 32, 64]),
+                
+                # Optimization
+                'optimizer': trial.suggest_categorical('optimizer', ['adam', 'adamw', 'sgd']),
+                'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True),
+                'gradient_clip': trial.suggest_float('gradient_clip', 0.5, 2.0),
             }
         else:
-            raise ValueError(f"Unknown model type: {model_type}")
+            # Similar structure for other methods
+            raise NotImplementedError(f"Transformer space for {method} not implemented")
     
-    def create_optuna_objective(self, model_type, pair, validation_method='standard'):
-        """Create enhanced objective function for Optuna optimization."""
+    @staticmethod
+    def get_xgboost_space(trial: optuna.Trial = None, method: str = 'optuna') -> Dict:
+        """Get XGBoost hyperparameter space"""
+        if method == 'optuna':
+            return {
+                # Tree parameters
+                'n_estimators': trial.suggest_int('n_estimators', 100, 1000, step=50),
+                'max_depth': trial.suggest_int('max_depth', 3, 15),
+                'min_child_weight': trial.suggest_int('min_child_weight', 1, 20),
+                'max_leaves': trial.suggest_int('max_leaves', 0, 200),
+                
+                # Learning parameters
+                'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.3, log=True),
+                'subsample': trial.suggest_float('subsample', 0.5, 1.0),
+                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
+                'colsample_bylevel': trial.suggest_float('colsample_bylevel', 0.5, 1.0),
+                'colsample_bynode': trial.suggest_float('colsample_bynode', 0.5, 1.0),
+                
+                # Regularization
+                'gamma': trial.suggest_float('gamma', 0, 5),
+                'reg_alpha': trial.suggest_float('reg_alpha', 0, 5),
+                'reg_lambda': trial.suggest_float('reg_lambda', 0.1, 5),
+                
+                # Advanced parameters
+                'tree_method': trial.suggest_categorical('tree_method', ['auto', 'hist', 'approx']),
+                'grow_policy': trial.suggest_categorical('grow_policy', ['depthwise', 'lossguide']),
+                'max_delta_step': trial.suggest_int('max_delta_step', 0, 10),
+                'scale_pos_weight': trial.suggest_float('scale_pos_weight', 0.5, 2.0),
+            }
         
-        def enhanced_objective(trial):
-            try:
-                # Sample hyperparameters
-                params = {}
-                space = self.get_enhanced_search_space(model_type)
+        elif method == 'hyperopt':
+            return {
+                'n_estimators': hp.choice('n_estimators', range(100, 1001, 50)),
+                'max_depth': hp.choice('max_depth', range(3, 16)),
+                'min_child_weight': hp.choice('min_child_weight', range(1, 21)),
+                'max_leaves': hp.choice('max_leaves', range(0, 201, 10)),
                 
-                for param_name, param_space in space.items():
-                    if hasattr(param_space, 'low') and hasattr(param_space, 'high'):
-                        if isinstance(param_space.low, int):
-                            params[param_name] = trial.suggest_int(param_name, param_space.low, param_space.high)
-                        else:
-                            if hasattr(param_space, 'prior') and param_space.prior == 'log-uniform':
-                                params[param_name] = trial.suggest_float(param_name, param_space.low, param_space.high, log=True)
-                            else:
-                                params[param_name] = trial.suggest_float(param_name, param_space.low, param_space.high)
-                    elif hasattr(param_space, 'categories'):
-                        params[param_name] = trial.suggest_categorical(param_name, param_space.categories)
+                'learning_rate': hp.loguniform('learning_rate', np.log(0.001), np.log(0.3)),
+                'subsample': hp.uniform('subsample', 0.5, 1.0),
+                'colsample_bytree': hp.uniform('colsample_bytree', 0.5, 1.0),
+                'colsample_bylevel': hp.uniform('colsample_bylevel', 0.5, 1.0),
+                'colsample_bynode': hp.uniform('colsample_bynode', 0.5, 1.0),
                 
-                # Enhanced validation
-                if validation_method == 'walkforward':
-                    score = self._evaluate_with_walkforward(model_type, pair, params, trial)
-                else:
-                    score = self._evaluate_standard(model_type, pair, params, trial)
+                'gamma': hp.uniform('gamma', 0, 5),
+                'reg_alpha': hp.uniform('reg_alpha', 0, 5),
+                'reg_lambda': hp.uniform('reg_lambda', 0.1, 5),
                 
-                # Report intermediate value for pruning
-                trial.report(score, step=1)
-                
-                # Check if trial should be pruned
-                if trial.should_prune():
-                    raise optuna.TrialPruned()
-                
-                return score
-                
-            except optuna.TrialPruned:
-                raise
-            except Exception as e:
-                logger.error(f"Error in trial {trial.number}: {e}")
-                return 0.0
+                'tree_method': hp.choice('tree_method', ['auto', 'hist', 'approx']),
+                'grow_policy': hp.choice('grow_policy', ['depthwise', 'lossguide']),
+                'max_delta_step': hp.choice('max_delta_step', range(0, 11)),
+                'scale_pos_weight': hp.uniform('scale_pos_weight', 0.5, 2.0),
+            }
         
-        return enhanced_objective
+        elif method == 'skopt':
+            return [
+                Integer(100, 1000, name='n_estimators'),
+                Integer(3, 15, name='max_depth'),
+                Integer(1, 20, name='min_child_weight'),
+                Integer(0, 200, name='max_leaves'),
+                
+                Real(0.001, 0.3, prior='log-uniform', name='learning_rate'),
+                Real(0.5, 1.0, name='subsample'),
+                Real(0.5, 1.0, name='colsample_bytree'),
+                Real(0.5, 1.0, name='colsample_bylevel'),
+                Real(0.5, 1.0, name='colsample_bynode'),
+                
+                Real(0, 5, name='gamma'),
+                Real(0, 5, name='reg_alpha'),
+                Real(0.1, 5, name='reg_lambda'),
+                
+                Categorical(['auto', 'hist', 'approx'], name='tree_method'),
+                Categorical(['depthwise', 'lossguide'], name='grow_policy'),
+                Integer(0, 10, name='max_delta_step'),
+                Real(0.5, 2.0, name='scale_pos_weight'),
+            ]
     
-    def create_multi_objective_function(self, model_type, pair):
-        """Create multi-objective function optimizing return and risk."""
-        
-        def multi_objective(trial):
-            try:
-                # Sample hyperparameters
-                params = {}
-                space = self.get_enhanced_search_space(model_type)
+    @staticmethod
+    def get_lightgbm_space(trial: optuna.Trial = None, method: str = 'optuna') -> Dict:
+        """Get LightGBM hyperparameter space"""
+        if method == 'optuna':
+            return {
+                # Core parameters
+                'n_estimators': trial.suggest_int('n_estimators', 100, 1000, step=50),
+                'num_leaves': trial.suggest_int('num_leaves', 20, 300),
+                'max_depth': trial.suggest_int('max_depth', -1, 20),
+                'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 10, 100),
                 
-                for param_name, param_space in space.items():
-                    if hasattr(param_space, 'low') and hasattr(param_space, 'high'):
-                        if isinstance(param_space.low, int):
-                            params[param_name] = trial.suggest_int(param_name, param_space.low, param_space.high)
-                        else:
-                            if hasattr(param_space, 'prior') and param_space.prior == 'log-uniform':
-                                params[param_name] = trial.suggest_float(param_name, param_space.low, param_space.high, log=True)
-                            else:
-                                params[param_name] = trial.suggest_float(param_name, param_space.low, param_space.high)
-                    elif hasattr(param_space, 'categories'):
-                        params[param_name] = trial.suggest_categorical(param_name, param_space.categories)
+                # Learning parameters
+                'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.3, log=True),
+                'feature_fraction': trial.suggest_float('feature_fraction', 0.5, 1.0),
+                'bagging_fraction': trial.suggest_float('bagging_fraction', 0.5, 1.0),
+                'bagging_freq': trial.suggest_int('bagging_freq', 0, 10),
                 
-                # Evaluate model and get both return and risk metrics
-                annual_return, max_drawdown = self._evaluate_return_and_risk(model_type, pair, params, trial)
+                # Regularization
+                'lambda_l1': trial.suggest_float('lambda_l1', 0, 5),
+                'lambda_l2': trial.suggest_float('lambda_l2', 0, 5),
+                'min_gain_to_split': trial.suggest_float('min_gain_to_split', 0, 1),
                 
-                # Return objectives: maximize return, minimize risk (max drawdown)
-                return annual_return, max_drawdown
-                
-            except Exception as e:
-                logger.error(f"Error in multi-objective trial {trial.number}: {e}")
-                return 0.0, 100.0  # Bad return, high risk
-        
-        return multi_objective
+                # Advanced
+                'boosting_type': trial.suggest_categorical('boosting_type', ['gbdt', 'dart', 'goss']),
+                'objective': trial.suggest_categorical('objective', ['binary', 'cross_entropy']),
+                'metric': trial.suggest_categorical('metric', ['binary_logloss', 'auc']),
+            }
+        else:
+            raise NotImplementedError(f"LightGBM space for {method} not implemented")
+
+
+class ModelEvaluator:
+    """Evaluate models with various metrics"""
     
-    def _evaluate_standard(self, model_type, pair, params, trial):
-        """Standard evaluation using validation set."""
+    def __init__(self, config: TradingConfig):
+        self.config = config
+        self.logger = logging.getLogger(__name__)
+        
+    def evaluate_model(self, model, X_train, y_train, X_val, y_val, 
+                      model_type: str, params: Dict) -> Dict[str, float]:
+        """Evaluate model and return metrics"""
         try:
-            # Get training and validation data
-            if pair == 'Bagging':
-                train_data = self.forex_pred.bagging_data['train']
-                val_data = self.forex_pred.bagging_data['validation']
-            else:
-                train_data = self.forex_pred.selected_features[pair]['train']
-                val_data = self.forex_pred.selected_features[pair]['validation']
-            
-            # Temporarily update hyperparameters
-            original_params = self.forex_pred.hyperparameters.get(model_type, {}).get(pair, {})
-            self.forex_pred.hyperparameters.setdefault(model_type, {})[pair] = params
-            
-            # Prepare data
-            is_lstm = model_type in ['enhanced_cnn_lstm', 'advanced_tft']
-            X_train, y_train, scaler, _ = self.forex_pred.prepare_model_data(train_data, is_lstm=is_lstm)
-            X_val, y_val, _, _ = self.forex_pred.prepare_model_data(val_data, is_lstm=is_lstm)
-            
-            # Handle NaN values
-            if np.isnan(X_train).any() or np.isnan(y_train).any():
-                X_train = np.nan_to_num(X_train)
-                y_train = np.nan_to_num(y_train)
-            if np.isnan(X_val).any() or np.isnan(y_val).any():
-                X_val = np.nan_to_num(X_val)
-                y_val = np.nan_to_num(y_val)
-            
-            # Build and train model
-            if model_type == 'enhanced_cnn_lstm':
-                input_shape = (X_train.shape[1], X_train.shape[2])
-                model = self.forex_pred.build_enhanced_cnn_lstm_model(input_shape, pair)
-                
-                from tensorflow.keras.callbacks import EarlyStopping
-                callbacks = [EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True)]
-                
-                history = model.fit(X_train, y_train, validation_data=(X_val, y_val),
-                                  epochs=75, batch_size=32, callbacks=callbacks, verbose=0)
-                score = max(history.history['val_accuracy'])
-                
-            elif model_type == 'advanced_tft':
-                input_dim = X_train.shape[2]
-                model = self.forex_pred.build_advanced_tft_model(input_dim, pair)
-                
-                from tensorflow.keras.callbacks import EarlyStopping
-                callbacks = [EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True)]
-                
-                history = model.fit(X_train, y_train, validation_data=(X_val, y_val),
-                                  epochs=75, batch_size=32, callbacks=callbacks, verbose=0)
-                score = max(history.history['val_accuracy'])
-                
-            elif model_type == 'enhanced_xgboost':
-                model = self.forex_pred.build_enhanced_xgboost_model(pair)
-                model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=0)
-                score = model.score(X_val, y_val)
-            
-            # Restore original parameters
-            self.forex_pred.hyperparameters[model_type][pair] = original_params
-            
-            return score
-            
-        except Exception as e:
-            logger.error(f"Error in standard evaluation: {e}")
-            return 0.0
-    
-    def _evaluate_with_walkforward(self, model_type, pair, params, trial):
-        """Enhanced evaluation using walk-forward validation."""
-        try:
-            # Implement mini walk-forward for hyperparameter tuning
-            if pair == 'Bagging':
-                full_data = self.forex_pred.bagging_data['train']
-            else:
-                full_data = pd.concat([
-                    self.forex_pred.selected_features[pair]['train'],
-                    self.forex_pred.selected_features[pair]['validation']
-                ])
-            
-            # Create 3 walk-forward windows for faster evaluation
-            window_size = len(full_data) // 4
-            scores = []
-            
-            for i in range(3):
-                start_idx = i * window_size // 2
-                train_end_idx = start_idx + window_size
-                val_end_idx = min(start_idx + int(window_size * 1.2), len(full_data))
-                
-                if val_end_idx - train_end_idx < 50:  # Minimum validation size
-                    continue
-                
-                window_train = full_data.iloc[start_idx:train_end_idx]
-                window_val = full_data.iloc[train_end_idx:val_end_idx]
-                
-                # Temporarily update hyperparameters
-                original_params = self.forex_pred.hyperparameters.get(model_type, {}).get(pair, {})
-                self.forex_pred.hyperparameters.setdefault(model_type, {})[pair] = params
-                
-                # Quick model evaluation
-                try:
-                    is_lstm = model_type in ['enhanced_cnn_lstm', 'advanced_tft']
-                    X_train, y_train, _, _ = self.forex_pred.prepare_model_data(window_train, is_lstm=is_lstm)
-                    X_val, y_val, _, _ = self.forex_pred.prepare_model_data(window_val, is_lstm=is_lstm)
-                    
-                    if np.isnan(X_train).any() or np.isnan(y_train).any():
-                        X_train = np.nan_to_num(X_train)
-                        y_train = np.nan_to_num(y_train)
-                    if np.isnan(X_val).any() or np.isnan(y_val).any():
-                        X_val = np.nan_to_num(X_val)
-                        y_val = np.nan_to_num(y_val)
-                    
-                    if len(X_train) < 10 or len(X_val) < 5:
-                        continue
-                    
-                    # Quick training with reduced epochs
-                    if model_type == 'enhanced_cnn_lstm':
-                        input_shape = (X_train.shape[1], X_train.shape[2])
-                        model = self.forex_pred.build_enhanced_cnn_lstm_model(input_shape, pair)
-                        
-                        history = model.fit(X_train, y_train, validation_data=(X_val, y_val),
-                                          epochs=25, batch_size=32, verbose=0)
-                        score = max(history.history['val_accuracy']) if history.history['val_accuracy'] else 0.5
-                        
-                    elif model_type == 'advanced_tft':
-                        input_dim = X_train.shape[2]
-                        model = self.forex_pred.build_advanced_tft_model(input_dim, pair)
-                        
-                        history = model.fit(X_train, y_train, validation_data=(X_val, y_val),
-                                          epochs=25, batch_size=32, verbose=0)
-                        score = max(history.history['val_accuracy']) if history.history['val_accuracy'] else 0.5
-                        
-                    elif model_type == 'enhanced_xgboost':
-                        model = self.forex_pred.build_enhanced_xgboost_model(pair)
-                        model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=0)
-                        score = model.score(X_val, y_val)
-                    
-                    scores.append(score)
-                    
-                except Exception as e:
-                    logger.warning(f"Error in walk-forward window {i}: {e}")
-                    continue
-                finally:
-                    # Restore original parameters
-                    self.forex_pred.hyperparameters[model_type][pair] = original_params
-            
-            # Return average score across windows
-            return np.mean(scores) if scores else 0.0
-            
-        except Exception as e:
-            logger.error(f"Error in walk-forward evaluation: {e}")
-            return 0.0
-    
-    def _evaluate_return_and_risk(self, model_type, pair, params, trial):
-        """Evaluate model for multi-objective optimization (return vs risk)."""
-        try:
-            # Use validation data for faster evaluation
-            if pair == 'Bagging':
-                train_data = self.forex_pred.bagging_data['train']
-                val_data = self.forex_pred.bagging_data['validation']
-            else:
-                train_data = self.forex_pred.selected_features[pair]['train']
-                val_data = self.forex_pred.selected_features[pair]['validation']
-            
-            # Temporarily update hyperparameters
-            original_params = self.forex_pred.hyperparameters.get(model_type, {}).get(pair, {})
-            self.forex_pred.hyperparameters.setdefault(model_type, {})[pair] = params
-            
-            try:
-                # Train model
-                is_lstm = model_type in ['enhanced_cnn_lstm', 'advanced_tft']
-                X_train, y_train, _, _ = self.forex_pred.prepare_model_data(train_data, is_lstm=is_lstm)
-                X_val, y_val, _, _ = self.forex_pred.prepare_model_data(val_data, is_lstm=is_lstm)
-                
-                # Handle NaN values
-                if np.isnan(X_train).any() or np.isnan(y_train).any():
-                    X_train = np.nan_to_num(X_train)
-                    y_train = np.nan_to_num(y_train)
-                if np.isnan(X_val).any() or np.isnan(y_val).any():
-                    X_val = np.nan_to_num(X_val)
-                    y_val = np.nan_to_num(y_val)
-                
-                # Build and train model
-                if model_type == 'enhanced_cnn_lstm':
-                    input_shape = (X_train.shape[1], X_train.shape[2])
-                    model = self.forex_pred.build_enhanced_cnn_lstm_model(input_shape, pair)
-                    
-                    model.fit(X_train, y_train, validation_data=(X_val, y_val),
-                            epochs=50, batch_size=32, verbose=0)
-                    
-                    y_pred_proba = model.predict(X_val)
-                    y_pred = (y_pred_proba > 0.5).astype(int).flatten()
-                    y_pred_proba = y_pred_proba.flatten()
-                    
-                elif model_type == 'advanced_tft':
-                    input_dim = X_train.shape[2]
-                    model = self.forex_pred.build_advanced_tft_model(input_dim, pair)
-                    
-                    model.fit(X_train, y_train, validation_data=(X_val, y_val),
-                            epochs=50, batch_size=32, verbose=0)
-                    
-                    y_pred_proba = model.predict(X_val)
-                    y_pred = (y_pred_proba > 0.5).astype(int).flatten()
-                    y_pred_proba = y_pred_proba.flatten()
-                    
-                elif model_type == 'enhanced_xgboost':
-                    model = self.forex_pred.build_enhanced_xgboost_model(pair)
-                    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=0)
-                    
-                    y_pred_proba = model.predict_proba(X_val)[:, 1]
-                    y_pred = (y_pred_proba > 0.5).astype(int)
-                
-                # Quick trading simulation for return and risk
-                val_data_subset = val_data.iloc[-len(y_pred):] if len(val_data) > len(y_pred) else val_data
-                trading_perf = self.forex_pred.evaluate_enhanced_trading_performance(
-                    pair, model_type, y_val, y_pred, y_pred_proba, val_data_subset
+            # Train model with given parameters
+            if model_type in ['cnn_lstm', 'transformer']:
+                # Deep learning model
+                trained_model = self._train_deep_model(
+                    model_type, X_train, y_train, X_val, y_val, params
                 )
-                
-                annual_return = trading_perf['annual_return']
-                max_drawdown = trading_perf['max_drawdown']
-                
-                return annual_return, max_drawdown
-                
-            finally:
-                # Restore original parameters
-                self.forex_pred.hyperparameters[model_type][pair] = original_params
+                predictions = trained_model.predict(X_val)
+            else:
+                # Tree-based model
+                trained_model = self._train_tree_model(
+                    model_type, X_train, y_train, X_val, y_val, params
+                )
+                predictions = trained_model.predict_proba(X_val)[:, 1]
+            
+            # Calculate metrics
+            metrics = self._calculate_metrics(predictions, y_val)
+            
+            # Trading simulation for financial metrics
+            trading_metrics = self._simulate_trading(predictions, X_val, y_val)
+            metrics.update(trading_metrics)
+            
+            return metrics
             
         except Exception as e:
-            logger.error(f"Error in return/risk evaluation: {e}")
-            return 0.0, 100.0
+            self.logger.error(f"Error evaluating model: {str(e)}")
+            return {'error': 1.0}
     
-    def run_enhanced_optimization(self, model_type, pair, n_trials=100, 
-                                 optimization_method='bayesian_tpe', 
-                                 validation_method='standard'):
-        """Run enhanced hyperparameter optimization."""
-        logger.info(f"🔬 Starting enhanced optimization: {model_type} on {pair}")
-        logger.info(f"Method: {optimization_method}, Validation: {validation_method}, Trials: {n_trials}")
+    def _train_deep_model(self, model_type: str, X_train, y_train, 
+                         X_val, y_val, params: Dict):
+        """Train deep learning model"""
+        # Clear previous model to free memory
+        K.clear_session()
         
-        # Configure optimization method
-        method_config = self.optimization_methods[optimization_method]
+        if model_type == 'cnn_lstm':
+            # Build model with hyperparameters
+            model = self._build_cnn_lstm(X_train.shape[1:], params)
+        elif model_type == 'transformer':
+            model = self._build_transformer(X_train.shape[1:], params)
+        else:
+            raise ValueError(f"Unknown deep model type: {model_type}")
         
-        if optimization_method == 'multi_objective':
-            # Multi-objective optimization
-            sampler = method_config['sampler'](seed=42)
-            pruner = method_config['pruner'](percentile=25.0, n_startup_trials=10, n_warmup_steps=20)
+        # Compile model
+        optimizer = self._get_optimizer(params)
+        model.compile(
+            optimizer=optimizer,
+            loss='binary_crossentropy',
+            metrics=['accuracy']
+        )
+        
+        # Train model
+        history = model.fit(
+            X_train, y_train,
+            validation_data=(X_val, y_val),
+            epochs=50,  # Reduced for hyperparameter search
+            batch_size=params.get('batch_size', 32),
+            callbacks=[
+                tf.keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True),
+                tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5)
+            ],
+            verbose=0
+        )
+        
+        return model
+    
+    def _build_cnn_lstm(self, input_shape: Tuple, params: Dict):
+        """Build CNN-LSTM model with given parameters"""
+        inputs = tf.keras.layers.Input(shape=input_shape)
+        
+        # CNN layers
+        x = tf.keras.layers.Conv1D(
+            params['cnn_filters_1'], 
+            params['cnn_kernel_size'],
+            activation=params['cnn_activation'],
+            padding='same'
+        )(inputs)
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.MaxPooling1D(2)(x)
+        x = tf.keras.layers.Dropout(params['dropout_rate'])(x)
+        
+        x = tf.keras.layers.Conv1D(
+            params['cnn_filters_2'],
+            params['cnn_kernel_size'],
+            activation=params['cnn_activation'],
+            padding='same'
+        )(x)
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Dropout(params['dropout_rate'])(x)
+        
+        # LSTM layers
+        if params.get('use_bidirectional', False):
+            x = tf.keras.layers.Bidirectional(
+                tf.keras.layers.LSTM(params['lstm_units_1'], return_sequences=True)
+            )(x)
+        else:
+            x = tf.keras.layers.LSTM(params['lstm_units_1'], return_sequences=True)(x)
+        
+        x = tf.keras.layers.Dropout(params['lstm_dropout'])(x)
+        
+        if params.get('use_bidirectional', False):
+            x = tf.keras.layers.Bidirectional(
+                tf.keras.layers.LSTM(params['lstm_units_2'], return_sequences=True)
+            )(x)
+        else:
+            x = tf.keras.layers.LSTM(params['lstm_units_2'], return_sequences=True)(x)
+        
+        # Attention if enabled
+        if params.get('use_attention', False):
+            attention = tf.keras.layers.MultiHeadAttention(
+                num_heads=params['attention_heads'],
+                key_dim=params['lstm_units_2'] // params['attention_heads']
+            )(x, x)
+            x = tf.keras.layers.Add()([x, attention])
+            x = tf.keras.layers.LayerNormalization()(x)
+        
+        # Global pooling and output
+        x = tf.keras.layers.GlobalAveragePooling1D()(x)
+        x = tf.keras.layers.Dense(64, activation='relu')(x)
+        x = tf.keras.layers.Dropout(0.3)(x)
+        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x)
+        
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        
+        # Add regularization
+        if params.get('l1_reg', 0) > 0 or params.get('l2_reg', 0) > 0:
+            for layer in model.layers:
+                if hasattr(layer, 'kernel_regularizer'):
+                    layer.kernel_regularizer = tf.keras.regularizers.l1_l2(
+                        l1=params.get('l1_reg', 0),
+                        l2=params.get('l2_reg', 0)
+                    )
+        
+        return model
+    
+    def _build_transformer(self, input_shape: Tuple, params: Dict):
+        """Build Transformer model with given parameters"""
+        # Simplified transformer for hyperparameter search
+        inputs = tf.keras.layers.Input(shape=input_shape)
+        
+        # Embedding
+        x = tf.keras.layers.Dense(params['embedding_dim'])(inputs)
+        
+        # Positional encoding
+        if params['positional_encoding'] == 'sinusoidal':
+            # Add sinusoidal positional encoding
+            positions = tf.range(start=0, limit=input_shape[0], delta=1)
+            position_embedding = tf.keras.layers.Embedding(
+                input_dim=input_shape[0],
+                output_dim=params['embedding_dim']
+            )(positions)
+            x = x + position_embedding
+        
+        # Transformer blocks
+        for _ in range(params['num_blocks']):
+            # Multi-head attention
+            attn_output = tf.keras.layers.MultiHeadAttention(
+                num_heads=params['num_heads'],
+                key_dim=params['head_size'],
+                dropout=params['attention_dropout']
+            )(x, x)
             
-            study = optuna.create_study(
-                directions=method_config['directions'],
-                sampler=sampler,
-                pruner=pruner,
-                study_name=f"enhanced_multi_obj_{model_type}_{pair}"
+            # Skip connection and normalization
+            x = tf.keras.layers.Add()([x, attn_output])
+            x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(x)
+            
+            # Feed-forward network
+            ffn = tf.keras.Sequential([
+                tf.keras.layers.Dense(params['ff_dim'], activation='relu'),
+                tf.keras.layers.Dropout(params['dropout_rate']),
+                tf.keras.layers.Dense(params['embedding_dim'])
+            ])
+            ffn_output = ffn(x)
+            
+            # Skip connection and normalization
+            x = tf.keras.layers.Add()([x, ffn_output])
+            x = tf.keras.layers.LayerNormalization(epsilon=1e-6)(x)
+        
+        # Output
+        x = tf.keras.layers.GlobalAveragePooling1D()(x)
+        x = tf.keras.layers.Dense(64, activation='relu')(x)
+        x = tf.keras.layers.Dropout(0.3)(x)
+        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x)
+        
+        return tf.keras.Model(inputs=inputs, outputs=outputs)
+    
+    def _train_tree_model(self, model_type: str, X_train, y_train, 
+                         X_val, y_val, params: Dict):
+        """Train tree-based model"""
+        # Flatten inputs for tree models
+        X_train_flat = X_train.reshape(X_train.shape[0], -1)
+        X_val_flat = X_val.reshape(X_val.shape[0], -1)
+        
+        if model_type == 'xgboost':
+            model = xgb.XGBClassifier(
+                **{k: v for k, v in params.items() if k in xgb.XGBClassifier().get_params()},
+                use_label_encoder=False,
+                eval_metric='logloss',
+                random_state=42
+            )
+            model.fit(
+                X_train_flat, y_train,
+                eval_set=[(X_val_flat, y_val)],
+                early_stopping_rounds=20,
+                verbose=False
             )
             
-            objective = self.create_multi_objective_function(model_type, pair)
-            study.optimize(objective, n_trials=n_trials)
-            
-            # Store multi-objective results
-            self.multi_objective_studies[f"{pair}_{model_type}"] = study
-            
-            # Select best solution using compromise programming
-            best_trial = self._select_best_pareto_solution(study)
-            best_params = best_trial.params if best_trial else {}
-            best_value = best_trial.values if best_trial else [0.0, 100.0]
-            
+        elif model_type == 'lightgbm':
+            model = lgb.LGBMClassifier(
+                **{k: v for k, v in params.items() if k in lgb.LGBMClassifier().get_params()},
+                random_state=42,
+                n_jobs=-1
+            )
+            model.fit(
+                X_train_flat, y_train,
+                eval_set=[(X_val_flat, y_val)],
+                callbacks=[lgb.early_stopping(20), lgb.log_evaluation(0)]
+            )
         else:
-            # Single-objective optimization
-            sampler = method_config['sampler'](seed=42)
-            pruner = method_config['pruner'](n_startup_trials=10, n_warmup_steps=20)
+            raise ValueError(f"Unknown tree model type: {model_type}")
+        
+        return model
+    
+    def _get_optimizer(self, params: Dict):
+        """Get optimizer based on parameters"""
+        lr = params.get('learning_rate', 0.001)
+        optimizer_name = params.get('optimizer', 'adam')
+        
+        if optimizer_name == 'adam':
+            return tf.keras.optimizers.Adam(learning_rate=lr, clipnorm=1.0)
+        elif optimizer_name == 'adamw':
+            return tf.keras.optimizers.AdamW(
+                learning_rate=lr, 
+                weight_decay=params.get('weight_decay', 0.01)
+            )
+        elif optimizer_name == 'sgd':
+            return tf.keras.optimizers.SGD(
+                learning_rate=lr, 
+                momentum=0.9,
+                clipnorm=params.get('gradient_clip', 1.0)
+            )
+        elif optimizer_name == 'rmsprop':
+            return tf.keras.optimizers.RMSprop(learning_rate=lr, clipnorm=1.0)
+        else:
+            return tf.keras.optimizers.Adam(learning_rate=lr)
+    
+    def _calculate_metrics(self, predictions: np.ndarray, y_true: np.ndarray) -> Dict:
+        """Calculate classification metrics"""
+        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+        
+        y_pred = (predictions > 0.5).astype(int)
+        
+        return {
+            'accuracy': accuracy_score(y_true, y_pred),
+            'precision': precision_score(y_true, y_pred, zero_division=0),
+            'recall': recall_score(y_true, y_pred, zero_division=0),
+            'f1': f1_score(y_true, y_pred, zero_division=0),
+            'auc': roc_auc_score(y_true, predictions) if len(np.unique(y_true)) > 1 else 0.5
+        }
+    
+    def _simulate_trading(self, predictions: np.ndarray, X_val: np.ndarray, 
+                         y_val: np.ndarray) -> Dict:
+        """Simulate trading to get financial metrics"""
+        # Simplified trading simulation for hyperparameter search
+        returns = []
+        
+        for i in range(len(predictions)):
+            if predictions[i] > 0.5:
+                # Simulated return based on actual direction
+                returns.append(0.01 if y_val[i] == 1 else -0.01)
+            else:
+                returns.append(-0.01 if y_val[i] == 1 else 0.01)
+        
+        returns = np.array(returns)
+        
+        # Calculate metrics
+        total_return = np.sum(returns) * 100
+        sharpe_ratio = np.mean(returns) / (np.std(returns) + 1e-10) * np.sqrt(252)
+        
+        # Calculate drawdown
+        cumulative_returns = np.cumsum(returns)
+        running_max = np.maximum.accumulate(cumulative_returns)
+        drawdown = (running_max - cumulative_returns) / (running_max + 1e-10)
+        max_drawdown = np.max(drawdown) * 100
+        
+        return {
+            'total_return': total_return,
+            'sharpe_ratio': sharpe_ratio,
+            'max_drawdown': max_drawdown,
+            'win_rate': np.mean(returns > 0)
+        }
+
+
+class BayesianOptimizer:
+    """Bayesian optimization using Optuna"""
+    
+    def __init__(self, config: OptimizationConfig, trading_config: TradingConfig):
+        self.config = config
+        self.trading_config = trading_config
+        self.evaluator = ModelEvaluator(trading_config)
+        self.logger = logging.getLogger(__name__)
+        
+    def optimize(self, model_type: str, X_train, y_train, X_val, y_val,
+                storage_url: Optional[str] = None) -> Tuple[Dict, optuna.Study]:
+        """Run Bayesian optimization"""
+        # Create study
+        study_name = f"{model_type}_optimization_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Select sampler
+        sampler = self._get_sampler()
+        pruner = self._get_pruner()
+        
+        study = optuna.create_study(
+            study_name=study_name,
+            direction='maximize',
+            sampler=sampler,
+            pruner=pruner,
+            storage=storage_url,
+            load_if_exists=True
+        )
+        
+        # Define objective function
+        def objective(trial):
+            # Get hyperparameter space
+            space_func = getattr(HyperparameterSpace, f"get_{model_type}_space")
+            params = space_func(trial, 'optuna')
             
-            study = optuna.create_study(
-                direction=method_config['direction'],
-                sampler=sampler,
-                pruner=pruner,
-                study_name=f"enhanced_{optimization_method}_{model_type}_{pair}"
+            # Evaluate model
+            metrics = self.evaluator.evaluate_model(
+                None, X_train, y_train, X_val, y_val, model_type, params
             )
             
-            objective = self.create_optuna_objective(model_type, pair, validation_method)
-            study.optimize(objective, n_trials=n_trials)
+            # Handle errors
+            if 'error' in metrics:
+                return 0.0
             
-            best_params = study.best_params
-            best_value = study.best_value
+            # Select metric to optimize
+            if self.config.cv_metric == 'sharpe_ratio':
+                return metrics.get('sharpe_ratio', 0.0)
+            elif self.config.cv_metric == 'total_return':
+                return metrics.get('total_return', 0.0)
+            elif self.config.cv_metric == 'accuracy':
+                return metrics.get('accuracy', 0.0)
+            else:
+                # Combined metric
+                return (metrics.get('sharpe_ratio', 0.0) * 0.5 + 
+                       metrics.get('accuracy', 0.0) * 0.5)
         
-        # Store results
-        self.study_results[f"{pair}_{model_type}"] = study
+        # Optimize
+        study.optimize(
+            objective,
+            n_trials=self.config.n_trials,
+            timeout=self.config.timeout,
+            n_jobs=self.config.n_jobs if self.config.use_parallel else 1,
+            show_progress_bar=True
+        )
         
-        # Log results
-        logger.info(f"🎯 Optimization completed for {model_type} on {pair}")
-        if optimization_method == 'multi_objective':
-            logger.info(f"Best solution: Return={best_value[0]:.4f}, Risk={best_value[1]:.4f}")
-        else:
-            logger.info(f"Best score: {best_value:.4f}")
-        logger.info(f"Best parameters: {best_params}")
+        # Get best parameters
+        best_params = study.best_params
+        best_value = study.best_value
         
-        # Save results
-        self._save_optimization_results(model_type, pair, study, best_params, optimization_method)
-        
-        # Create visualization
-        self._create_optimization_visualization(model_type, pair, study, optimization_method)
+        self.logger.info(f"Best parameters for {model_type}: {best_params}")
+        self.logger.info(f"Best {self.config.cv_metric}: {best_value}")
         
         return best_params, study
     
-    def _select_best_pareto_solution(self, study):
-        """Select best solution from Pareto front using compromise programming."""
-        try:
-            # Get non-dominated solutions
-            pareto_trials = []
-            for trial in study.trials:
-                if trial.state == optuna.trial.TrialState.COMPLETE and trial.values:
-                    is_pareto = True
-                    for other_trial in study.trials:
-                        if (other_trial.state == optuna.trial.TrialState.COMPLETE and 
-                            other_trial.values and other_trial != trial):
-                            # Check if other_trial dominates trial
-                            if (other_trial.values[0] >= trial.values[0] and  # Return
-                                other_trial.values[1] <= trial.values[1] and  # Risk (lower is better)
-                                (other_trial.values[0] > trial.values[0] or 
-                                 other_trial.values[1] < trial.values[1])):
-                                is_pareto = False
-                                break
-                    if is_pareto:
-                        pareto_trials.append(trial)
-            
-            if not pareto_trials:
-                return None
-            
-            # Select solution with best risk-adjusted return
-            best_trial = max(pareto_trials, 
-                           key=lambda t: t.values[0] / (t.values[1] + 1e-6))  # Return / Risk
-            
-            return best_trial
-            
-        except Exception as e:
-            logger.error(f"Error selecting Pareto solution: {e}")
-            return study.best_trial if hasattr(study, 'best_trial') else None
-    
-    def _save_optimization_results(self, model_type, pair, study, best_params, method):
-        """Save comprehensive optimization results."""
-        output_dir = "output/hyperparameter_tuning"
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Save best hyperparameters
-        params_file = os.path.join(output_dir, f"{pair}_{model_type}_best_hyperparams.json")
-        with open(params_file, 'w') as f:
-            json.dump(best_params, f, indent=2)
-        
-        # Save detailed study results
-        study_data = {
-            'best_params': best_params,
-            'best_value': study.best_value if hasattr(study, 'best_value') else None,
-            'n_trials': len(study.trials),
-            'optimization_method': method,
-            'study_name': study.study_name,
-            'trials_summary': []
-        }
-        
-        # Add trial details (top 10)
-        completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-        if method == 'multi_objective':
-            # Sort by compromise solution (return/risk ratio)
-            completed_trials.sort(key=lambda t: t.values[0] / (t.values[1] + 1e-6) if t.values else 0, reverse=True)
+    def _get_sampler(self):
+        """Get Optuna sampler based on configuration"""
+        if self.config.sampler == 'tpe':
+            return TPESampler(seed=42)
+        elif self.config.sampler == 'cmaes':
+            return CmaEsSampler(seed=42)
+        elif self.config.sampler == 'random':
+            return RandomSampler(seed=42)
+        elif self.config.sampler == 'grid':
+            # Grid sampler requires search space
+            return GridSampler()
         else:
-            completed_trials.sort(key=lambda t: t.value if t.value else 0, reverse=True)
+            return TPESampler(seed=42)
+    
+    def _get_pruner(self):
+        """Get Optuna pruner based on configuration"""
+        if self.config.pruner == 'median':
+            return MedianPruner(n_startup_trials=5, n_warmup_steps=10)
+        elif self.config.pruner == 'hyperband':
+            return HyperbandPruner()
+        elif self.config.pruner == 'successive_halving':
+            return SuccessiveHalvingPruner()
+        elif self.config.pruner == 'threshold':
+            return ThresholdPruner(lower=0.0)
+        else:
+            return MedianPruner()
+
+
+class MultiObjectiveOptimizer:
+    """Multi-objective optimization for trading strategies"""
+    
+    def __init__(self, config: OptimizationConfig, trading_config: TradingConfig):
+        self.config = config
+        self.trading_config = trading_config
+        self.evaluator = ModelEvaluator(trading_config)
+        self.logger = logging.getLogger(__name__)
         
-        for trial in completed_trials[:10]:
-            trial_data = {
-                'number': trial.number,
+    def optimize(self, model_type: str, X_train, y_train, X_val, y_val) -> Tuple[List[Dict], optuna.Study]:
+        """Run multi-objective optimization"""
+        # Create multi-objective study
+        study = optuna.create_study(
+            directions=['maximize', 'minimize'],  # Return, Risk
+            sampler=NSGAIISampler(seed=42)
+        )
+        
+        def objective(trial):
+            # Get hyperparameters
+            space_func = getattr(HyperparameterSpace, f"get_{model_type}_space")
+            params = space_func(trial, 'optuna')
+            
+            # Evaluate model
+            metrics = self.evaluator.evaluate_model(
+                None, X_train, y_train, X_val, y_val, model_type, params
+            )
+            
+            # Return multiple objectives
+            total_return = metrics.get('total_return', 0.0)
+            max_drawdown = metrics.get('max_drawdown', 100.0)
+            
+            return total_return, max_drawdown
+        
+        # Optimize
+        study.optimize(
+            objective,
+            n_trials=self.config.n_trials,
+            timeout=self.config.timeout,
+            n_jobs=self.config.n_jobs if self.config.use_parallel else 1,
+            show_progress_bar=True
+        )
+        
+        # Get Pareto front solutions
+        pareto_front = self._get_pareto_front(study)
+        
+        self.logger.info(f"Found {len(pareto_front)} Pareto optimal solutions")
+        
+        return pareto_front, study
+    
+    def _get_pareto_front(self, study: optuna.Study) -> List[Dict]:
+        """Extract Pareto front solutions"""
+        pareto_front = []
+        
+        for trial in study.best_trials:
+            solution = {
                 'params': trial.params,
-                'value': trial.value if hasattr(trial, 'value') else None,
-                'values': trial.values if hasattr(trial, 'values') else None,
-                'state': trial.state.name
+                'values': {
+                    'return': trial.values[0],
+                    'risk': trial.values[1]
+                },
+                'trial_number': trial.number
             }
-            study_data['trials_summary'].append(trial_data)
+            pareto_front.append(solution)
         
-        # Save study data
-        study_file = os.path.join(output_dir, f"{pair}_{model_type}_optimization_study.json")
-        with open(study_file, 'w') as f:
-            json.dump(study_data, f, indent=2)
-        
-        logger.info(f"💾 Optimization results saved: {params_file}")
+        return pareto_front
+
+
+class HyperparameterTuner:
+    """Main hyperparameter tuning orchestrator"""
     
-    def _create_optimization_visualization(self, model_type, pair, study, method):
-        """Create comprehensive optimization visualizations."""
-        try:
-            output_dir = "output/hyperparameter_tuning"
-            report_dir = os.path.join(output_dir, "reports")
-            os.makedirs(report_dir, exist_ok=True)
+    def __init__(self, config: OptimizationConfig, trading_config: TradingConfig):
+        self.config = config
+        self.trading_config = trading_config
+        self.logger = logging.getLogger(__name__)
+        self.results = {}
+        
+    def tune_all_models(self, X_train, y_train, X_val, y_val, 
+                       models: List[str] = None) -> Dict:
+        """Tune hyperparameters for all models"""
+        if models is None:
+            models = ['cnn_lstm', 'transformer', 'xgboost', 'lightgbm']
+        
+        self.logger.info(f"Starting hyperparameter tuning for {len(models)} models")
+        
+        for model_type in models:
+            self.logger.info(f"\n{'='*60}")
+            self.logger.info(f"Tuning {model_type}")
+            self.logger.info(f"{'='*60}")
             
-            # Create figure with multiple subplots
-            if method == 'multi_objective':
-                fig, axes = plt.subplots(2, 3, figsize=(20, 12))
-                fig.suptitle(f'Multi-Objective Optimization: {model_type} on {pair}', fontsize=16, fontweight='bold')
-                
-                # Plot 1: Pareto front
-                if len(study.trials) > 0:
-                    returns = []
-                    risks = []
-                    for trial in study.trials:
-                        if trial.state == optuna.trial.TrialState.COMPLETE and trial.values:
-                            returns.append(trial.values[0])
-                            risks.append(trial.values[1])
-                    
-                    if returns and risks:
-                        axes[0, 0].scatter(risks, returns, alpha=0.6, s=30)
-                        axes[0, 0].set_xlabel('Risk (Max Drawdown %)')
-                        axes[0, 0].set_ylabel('Return (Annual Return %)')
-                        axes[0, 0].set_title('Pareto Front: Return vs Risk')
-                        axes[0, 0].grid(True, alpha=0.3)
-                
-                # Plot 2: Parameter importance for return
-                try:
-                    if len(study.trials) > 10:
-                        importance_return = optuna.importance.get_param_importances(study, target=lambda t: t.values[0])
-                        params = list(importance_return.keys())[:8]  # Top 8 parameters
-                        values = [importance_return[p] for p in params]
-                        
-                        axes[0, 1].barh(params, values, alpha=0.7)
-                        axes[0, 1].set_title('Parameter Importance for Return')
-                        axes[0, 1].set_xlabel('Importance')
-                except:
-                    axes[0, 1].text(0.5, 0.5, 'Insufficient data for\nparameter importance', 
-                                   ha='center', va='center', transform=axes[0, 1].transAxes)
-                
-                # Plot 3: Parameter importance for risk
-                try:
-                    if len(study.trials) > 10:
-                        importance_risk = optuna.importance.get_param_importances(study, target=lambda t: t.values[1])
-                        params = list(importance_risk.keys())[:8]
-                        values = [importance_risk[p] for p in params]
-                        
-                        axes[0, 2].barh(params, values, alpha=0.7, color='red')
-                        axes[0, 2].set_title('Parameter Importance for Risk')
-                        axes[0, 2].set_xlabel('Importance')
-                except:
-                    axes[0, 2].text(0.5, 0.5, 'Insufficient data for\nparameter importance', 
-                                   ha='center', va='center', transform=axes[0, 2].transAxes)
-                
-            else:
-                fig, axes = plt.subplots(2, 3, figsize=(20, 12))
-                fig.suptitle(f'Single-Objective Optimization: {model_type} on {pair}', fontsize=16, fontweight='bold')
-                
-                # Plot 1: Optimization history
-                values = [trial.value for trial in study.trials if trial.value is not None]
-                if values:
-                    axes[0, 0].plot(values, marker='o', alpha=0.7, linewidth=1, markersize=3)
-                    axes[0, 0].set_title('Optimization History')
-                    axes[0, 0].set_xlabel('Trial')
-                    axes[0, 0].set_ylabel('Objective Value')
-                    axes[0, 0].grid(True, alpha=0.3)
-                
-                # Plot 2: Best value progression
-                best_values = []
-                current_best = -float('inf')
-                for value in values:
-                    if value > current_best:
-                        current_best = value
-                    best_values.append(current_best)
-                
-                if best_values:
-                    axes[0, 1].plot(best_values, marker='o', color='green', alpha=0.7, linewidth=2, markersize=3)
-                    axes[0, 1].set_title('Best Value Progression')
-                    axes[0, 1].set_xlabel('Trial')
-                    axes[0, 1].set_ylabel('Best Objective Value')
-                    axes[0, 1].grid(True, alpha=0.3)
-                
-                # Plot 3: Parameter importance
-                try:
-                    if len(study.trials) > 10:
-                        importance = optuna.importance.get_param_importances(study)
-                        params = list(importance.keys())[:8]  # Top 8 parameters
-                        values = [importance[p] for p in params]
-                        
-                        axes[0, 2].barh(params, values, alpha=0.7)
-                        axes[0, 2].set_title('Parameter Importance')
-                        axes[0, 2].set_xlabel('Importance')
-                        axes[0, 2].grid(True, alpha=0.3)
-                except:
-                    axes[0, 2].text(0.5, 0.5, 'Insufficient data for\nparameter importance', 
-                                   ha='center', va='center', transform=axes[0, 2].transAxes)
-            
-            # Common plots for both methods
-            
-            # Plot 4: Trial distribution
-            objective_values = []
-            if method == 'multi_objective':
-                # Use compromise metric for distribution
-                for trial in study.trials:
-                    if trial.state == optuna.trial.TrialState.COMPLETE and trial.values:
-                        compromise = trial.values[0] / (trial.values[1] + 1e-6)
-                        objective_values.append(compromise)
-            else:
-                objective_values = [trial.value for trial in study.trials if trial.value is not None]
-            
-            if objective_values:
-                axes[1, 0].hist(objective_values, bins=min(20, len(objective_values)//2), 
-                               alpha=0.7, edgecolor='black')
-                axes[1, 0].set_title('Objective Value Distribution')
-                axes[1, 0].set_xlabel('Objective Value')
-                axes[1, 0].set_ylabel('Frequency')
-                axes[1, 0].grid(True, alpha=0.3)
-            
-            # Plot 5: Convergence analysis
-            if len(objective_values) > 10:
-                window_size = max(5, len(objective_values)//10)
-                moving_avg = pd.Series(objective_values).rolling(window=window_size).mean()
-                
-                axes[1, 1].plot(objective_values, alpha=0.3, label='Individual Trials', linewidth=0.5)
-                axes[1, 1].plot(moving_avg, color='red', linewidth=2, 
-                               label=f'Moving Average (window={window_size})')
-                axes[1, 1].set_title('Convergence Analysis')
-                axes[1, 1].set_xlabel('Trial')
-                axes[1, 1].set_ylabel('Objective Value')
-                axes[1, 1].legend()
-                axes[1, 1].grid(True, alpha=0.3)
-            
-            # Plot 6: Best parameters radar plot
             try:
-                best_params = study.best_params if hasattr(study, 'best_params') else study.best_trial.params
-                if best_params:
-                    param_names = list(best_params.keys())[:6]  # Limit to 6 for readability
-                    param_values = []
+                if self.config.method == 'bayesian':
+                    optimizer = BayesianOptimizer(self.config, self.trading_config)
+                    best_params, study = optimizer.optimize(
+                        model_type, X_train, y_train, X_val, y_val
+                    )
                     
-                    space = self.get_enhanced_search_space(model_type)
-                    for param in param_names:
-                        value = best_params[param]
-                        if param in {ps.name: ps for ps in space.values()}:
-                            param_space = next(ps for ps in space.values() if ps.name == param)
-                            if hasattr(param_space, 'low') and hasattr(param_space, 'high'):
-                                # Normalize to 0-1
-                                normalized = (value - param_space.low) / (param_space.high - param_space.low)
-                                param_values.append(normalized)
-                            else:
-                                param_values.append(0.5)  # Default for categorical
-                        else:
-                            param_values.append(0.5)
+                    self.results[model_type] = {
+                        'best_params': best_params,
+                        'best_value': study.best_value,
+                        'study': study
+                    }
                     
-                    if param_values:
-                        angles = np.linspace(0, 2*np.pi, len(param_names), endpoint=False).tolist()
-                        param_values += param_values[:1]  # Complete the circle
-                        angles += angles[:1]
-                        
-                        ax_radar = fig.add_subplot(2, 3, 6, projection='polar')
-                        ax_radar.plot(angles, param_values, 'o-', linewidth=2, label='Best Parameters')
-                        ax_radar.fill(angles, param_values, alpha=0.25)
-                        ax_radar.set_xticks(angles[:-1])
-                        ax_radar.set_xticklabels(param_names)
-                        ax_radar.set_title('Best Parameters (Normalized)')
-                        ax_radar.grid(True)
+                elif self.config.method == 'multi_objective':
+                    optimizer = MultiObjectiveOptimizer(self.config, self.trading_config)
+                    pareto_front, study = optimizer.optimize(
+                        model_type, X_train, y_train, X_val, y_val
+                    )
+                    
+                    self.results[model_type] = {
+                        'pareto_front': pareto_front,
+                        'study': study
+                    }
+                    
+                else:
+                    raise ValueError(f"Unknown optimization method: {self.config.method}")
+                    
             except Exception as e:
-                logger.warning(f"Could not create radar plot: {e}")
-            
-            plt.tight_layout()
-            plot_path = os.path.join(report_dir, f"{pair}_{model_type}_optimization_analysis.png")
-            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-            plt.close()
-            
-            logger.info(f"📊 Optimization visualization saved: {plot_path}")
-            
-        except Exception as e:
-            logger.error(f"Error creating optimization visualization: {e}")
+                self.logger.error(f"Error tuning {model_type}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                
+        return self.results
     
-    def run_comprehensive_optimization(self, forex_pred, pairs=None, models=None, 
-                                     n_trials=100, methods=None):
-        """Run comprehensive optimization for all model-pair combinations."""
-        logger.info("🚀 Starting comprehensive hyperparameter optimization for Master's thesis")
+    def save_results(self, output_dir: str = './output/hyperparameter_tuning'):
+        """Save tuning results"""
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
         
-        self.forex_pred = forex_pred
-        
-        # Set defaults
-        pairs = pairs or forex_pred.config['currency_pairs']
-        if forex_pred.config.get('use_bagging', False):
-            pairs = pairs + ['Bagging']
-        
-        models = models or forex_pred.config['models_to_train']
-        methods = methods or ['bayesian_tpe', 'multi_objective']
-        
-        # Calculate total combinations
-        total_combinations = len(pairs) * len(models) * len(methods)
-        logger.info(f"📊 Total optimization combinations: {total_combinations}")
-        
-        results = {}
-        current = 0
-        
-        for method in methods:
-            results[method] = {}
-            for model_type in models:
-                results[method][model_type] = {}
-                for pair in pairs:
-                    current += 1
-                    logger.info(f"🔄 Progress: {current}/{total_combinations} - {method} {model_type} on {pair}")
+        # Save parameters
+        for model_type, results in self.results.items():
+            # Save best parameters
+            if 'best_params' in results:
+                params_file = Path(output_dir) / f"{model_type}_best_params.json"
+                with open(params_file, 'w') as f:
+                    json.dump(results['best_params'], f, indent=4)
                     
-                    try:
-                        best_params, study = self.run_enhanced_optimization(
-                            model_type, pair, n_trials, method, 'standard'
-                        )
-                        
-                        results[method][model_type][pair] = {
-                            'best_params': best_params,
-                            'best_value': study.best_value if hasattr(study, 'best_value') else None,
-                            'n_trials': len(study.trials),
-                            'study_name': study.study_name
-                        }
-                        
-                        # Update forex prediction hyperparameters with best found
-                        forex_pred.hyperparameters.setdefault(model_type, {})[pair] = best_params
-                        
-                    except Exception as e:
-                        logger.error(f"Error optimizing {method} {model_type} on {pair}: {e}")
-                        continue
-        
-        # Create comprehensive summary report
-        self._create_comprehensive_summary(results)
-        
-        # Save comprehensive results
-        output_file = "output/hyperparameter_tuning/comprehensive_optimization_results.json"
-        with open(output_file, 'w') as f:
-            json.dump(results, f, indent=2)
-        
-        logger.info("🎯 Comprehensive hyperparameter optimization completed!")
-        logger.info(f"📄 Results saved to: {output_file}")
-        
-        return results
+            # Save Pareto front
+            if 'pareto_front' in results:
+                pareto_file = Path(output_dir) / f"{model_type}_pareto_front.json"
+                with open(pareto_file, 'w') as f:
+                    json.dump(results['pareto_front'], f, indent=4, default=str)
+                    
+            # Save study
+            if 'study' in results:
+                study_file = Path(output_dir) / f"{model_type}_study.pkl"
+                with open(study_file, 'wb') as f:
+                    pickle.dump(results['study'], f)
+                    
+        self.logger.info(f"Results saved to {output_dir}")
     
-    def _create_comprehensive_summary(self, results):
-        """Create comprehensive optimization summary report."""
-        logger.info("Creating comprehensive optimization summary")
+    def visualize_results(self, output_dir: str = './output/hyperparameter_tuning'):
+        """Create visualizations of optimization results"""
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
         
-        # Create summary visualization
-        fig, axes = plt.subplots(2, 2, figsize=(20, 12))
-        fig.suptitle('Comprehensive Hyperparameter Optimization Summary', fontsize=16, fontweight='bold')
-        
-        # Extract data for visualization
-        method_performance = {}
-        model_performance = {}
-        pair_performance = {}
-        
-        for method, method_results in results.items():
-            method_scores = []
-            for model_type, model_results in method_results.items():
-                for pair, pair_results in model_results.items():
-                    score = pair_results.get('best_value')
-                    if score is not None:
-                        method_scores.append(score)
-                        
-                        # Track by model and pair
-                        model_performance.setdefault(model_type, []).append(score)
-                        pair_performance.setdefault(pair, []).append(score)
+        for model_type, results in self.results.items():
+            if 'study' not in results:
+                continue
+                
+            study = results['study']
             
-            if method_scores:
-                method_performance[method] = np.mean(method_scores)
+            # Create visualizations
+            try:
+                # Optimization history
+                fig = plot_optimization_history(study)
+                fig.write_image(Path(output_dir) / f"{model_type}_optimization_history.png")
+                
+                # Parameter importance
+                if len(study.trials) > 10:
+                    fig = plot_param_importances(study)
+                    fig.write_image(Path(output_dir) / f"{model_type}_param_importance.png")
+                
+                # Parallel coordinate plot
+                fig = plot_parallel_coordinate(study)
+                fig.write_image(Path(output_dir) / f"{model_type}_parallel_coordinate.png")
+                
+                # Slice plot
+                fig = plot_slice(study)
+                fig.write_image(Path(output_dir) / f"{model_type}_slice.png")
+                
+                # For multi-objective
+                if self.config.method == 'multi_objective':
+                    fig = plot_pareto_front(study)
+                    fig.write_image(Path(output_dir) / f"{model_type}_pareto_front.png")
+                    
+            except Exception as e:
+                self.logger.warning(f"Could not create visualization for {model_type}: {str(e)}")
+                
+        self.logger.info(f"Visualizations saved to {output_dir}")
+    
+    def generate_report(self, output_dir: str = './output/hyperparameter_tuning'):
+        """Generate comprehensive tuning report"""
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
         
-        # Plot 1: Performance by optimization method
-        if method_performance:
-            methods = list(method_performance.keys())
-            scores = list(method_performance.values())
+        report_path = Path(output_dir) / f"tuning_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Hyperparameter Tuning Report</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                h1, h2, h3 {{ color: #333; }}
+                table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #4CAF50; color: white; }}
+                .section {{ margin: 30px 0; }}
+                .metric {{ display: inline-block; margin: 10px; padding: 10px; 
+                          background-color: #f0f0f0; border-radius: 5px; }}
+                pre {{ background-color: #f5f5f5; padding: 10px; overflow-x: auto; }}
+            </style>
+        </head>
+        <body>
+            <h1>Hyperparameter Tuning Report</h1>
+            <p>Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
             
-            bars = axes[0, 0].bar(methods, scores, alpha=0.7)
-            axes[0, 0].set_title('Average Performance by Optimization Method')
-            axes[0, 0].set_ylabel('Average Best Score')
-            axes[0, 0].tick_params(axis='x', rotation=45)
+            <div class="section">
+                <h2>Configuration</h2>
+                <pre>{json.dumps(self.config.__dict__, indent=2)}</pre>
+            </div>
             
-            for bar, score in zip(bars, scores):
-                axes[0, 0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.001, 
-                               f'{score:.4f}', ha='center', va='bottom')
-        
-        # Plot 2: Performance by model type
-        if model_performance:
-            models = list(model_performance.keys())
-            avg_scores = [np.mean(scores) for scores in model_performance.values()]
+            <div class="section">
+                <h2>Results Summary</h2>
+                {self._generate_results_summary()}
+            </div>
             
-            bars = axes[0, 1].bar(models, avg_scores, alpha=0.7, color='green')
-            axes[0, 1].set_title('Average Performance by Model Type')
-            axes[0, 1].set_ylabel('Average Best Score')
-            axes[0, 1].tick_params(axis='x', rotation=45)
+            <div class="section">
+                <h2>Best Parameters</h2>
+                {self._generate_params_table()}
+            </div>
             
-            for bar, score in zip(bars, avg_scores):
-                axes[0, 1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.001, 
-                               f'{score:.4f}', ha='center', va='bottom')
+            <div class="section">
+                <h2>Optimization Visualizations</h2>
+                {self._generate_visualization_section(output_dir)}
+            </div>
+        </body>
+        </html>
+        """
         
-        # Plot 3: Performance by currency pair
-        if pair_performance:
-            pairs = list(pair_performance.keys())
-            avg_scores = [np.mean(scores) for scores in pair_performance.values()]
+        with open(report_path, 'w') as f:
+            f.write(html_content)
             
-            bars = axes[1, 0].bar(pairs, avg_scores, alpha=0.7, color='orange')
-            axes[1, 0].set_title('Average Performance by Currency Pair')
-            axes[1, 0].set_ylabel('Average Best Score')
+        self.logger.info(f"Report generated: {report_path}")
+        
+        return report_path
+    
+    def _generate_results_summary(self) -> str:
+        """Generate results summary HTML"""
+        summary_html = ""
+        
+        for model_type, results in self.results.items():
+            if 'best_value' in results:
+                summary_html += f"""
+                <div class="metric">
+                    <h3>{model_type}</h3>
+                    <p>Best {self.config.cv_metric}: {results['best_value']:.4f}</p>
+                    <p>Trials: {len(results.get('study', {}).trials)}</p>
+                </div>
+                """
+            elif 'pareto_front' in results:
+                summary_html += f"""
+                <div class="metric">
+                    <h3>{model_type}</h3>
+                    <p>Pareto solutions: {len(results['pareto_front'])}</p>
+                </div>
+                """
+                
+        return summary_html
+    
+    def _generate_params_table(self) -> str:
+        """Generate best parameters table HTML"""
+        table_html = "<table><tr><th>Model</th><th>Parameter</th><th>Value</th></tr>"
+        
+        for model_type, results in self.results.items():
+            if 'best_params' in results:
+                for param, value in results['best_params'].items():
+                    table_html += f"""
+                    <tr>
+                        <td>{model_type}</td>
+                        <td>{param}</td>
+                        <td>{value}</td>
+                    </tr>
+                    """
+                    
+        table_html += "</table>"
+        return table_html
+    
+    def _generate_visualization_section(self, output_dir: str) -> str:
+        """Generate visualization section HTML"""
+        viz_html = ""
+        
+        for model_type in self.results.keys():
+            viz_html += f"<h3>{model_type}</h3>"
             
-            for bar, score in zip(bars, avg_scores):
-                axes[1, 0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.001, 
-                               f'{score:.4f}', ha='center', va='bottom')
-        
-        # Plot 4: Performance distribution
-        all_scores = []
-        for method_results in results.values():
-            for model_results in method_results.values():
-                for pair_results in model_results.values():
-                    score = pair_results.get('best_value')
-                    if score is not None:
-                        all_scores.append(score)
-        
-        if all_scores:
-            axes[1, 1].hist(all_scores, bins=20, alpha=0.7, edgecolor='black')
-            axes[1, 1].axvline(np.mean(all_scores), color='red', linestyle='--', linewidth=2, 
-                              label=f'Mean: {np.mean(all_scores):.4f}')
-            axes[1, 1].set_title('Distribution of Best Scores')
-            axes[1, 1].set_xlabel('Best Score')
-            axes[1, 1].set_ylabel('Frequency')
-            axes[1, 1].legend()
-            axes[1, 1].grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig("output/hyperparameter_tuning/comprehensive_optimization_summary.png", 
-                   dpi=300, bbox_inches='tight')
-        plt.close()
-        
-        logger.info("📊 Comprehensive summary visualization created")
+            # Check for visualization files
+            viz_files = [
+                f"{model_type}_optimization_history.png",
+                f"{model_type}_param_importance.png",
+                f"{model_type}_parallel_coordinate.png",
+                f"{model_type}_slice.png"
+            ]
+            
+            if self.config.method == 'multi_objective':
+                viz_files.append(f"{model_type}_pareto_front.png")
+                
+            for viz_file in viz_files:
+                viz_path = Path(output_dir) / viz_file
+                if viz_path.exists():
+                    viz_html += f'<img src="{viz_file}" style="max-width: 800px; margin: 10px;"><br>'
+                    
+        return viz_html
+
 
 def main():
-    """Enhanced main function for hyperparameter optimization."""
-    parser = argparse.ArgumentParser(description='Enhanced Hyperparameter Optimization for Master\'s Thesis')
+    """Main execution function"""
+    import argparse
     
-    # Enhanced optimization options
-    parser.add_argument('--model', type=str, 
-                       choices=['enhanced_cnn_lstm', 'advanced_tft', 'enhanced_xgboost', 'all'], 
-                       default='all', help='Model type to optimize')
-    parser.add_argument('--pair', type=str, 
-                       choices=['EURUSD', 'GBPUSD', 'USDJPY', 'Bagging', 'all'], 
-                       default='all', help='Currency pair to optimize')
-    parser.add_argument('--trials', type=int, default=100, 
-                       help='Number of optimization trials (increased for thesis)')
-    parser.add_argument('--method', type=str, 
-                       choices=['bayesian_tpe', 'bayesian_cmaes', 'multi_objective', 'all'], 
-                       default='all', help='Optimization method')
-    parser.add_argument('--validation', type=str, 
-                       choices=['standard', 'walkforward'], 
-                       default='standard', help='Validation method')
-    parser.add_argument('--no-visualization', action='store_true', 
-                       help='Skip creating visualizations')
+    parser = argparse.ArgumentParser(
+        description='Advanced Hyperparameter Tuning for Forex Prediction'
+    )
     
-    # Enhanced parallel processing
-    parser.add_argument('--parallel', action='store_true', 
-                       help='Enable parallel optimization')
-    parser.add_argument('--n-jobs', type=int, default=multiprocessing.cpu_count()//2, 
+    # Optimization method
+    parser.add_argument('--method', choices=['bayesian', 'multi_objective', 'grid', 'random'],
+                       default='bayesian', help='Optimization method')
+    
+    # Models to tune
+    parser.add_argument('--models', nargs='+', 
+                       default=['cnn_lstm', 'transformer', 'xgboost', 'lightgbm'],
+                       help='Models to tune')
+    
+    # Optimization parameters
+    parser.add_argument('--n-trials', type=int, default=100,
+                       help='Number of optimization trials')
+    parser.add_argument('--timeout', type=int, default=3600,
+                       help='Timeout in seconds')
+    parser.add_argument('--metric', choices=['sharpe_ratio', 'total_return', 'accuracy'],
+                       default='sharpe_ratio', help='Metric to optimize')
+    
+    # Sampler and pruner
+    parser.add_argument('--sampler', choices=['tpe', 'cmaes', 'random', 'grid'],
+                       default='tpe', help='Optuna sampler')
+    parser.add_argument('--pruner', choices=['median', 'hyperband', 'successive_halving'],
+                       default='median', help='Optuna pruner')
+    
+    # Parallel processing
+    parser.add_argument('--n-jobs', type=int, default=1,
                        help='Number of parallel jobs')
+    parser.add_argument('--no-parallel', action='store_true',
+                       help='Disable parallel processing')
+    
+    # Data parameters
+    parser.add_argument('--data-dir', type=str, default='./data',
+                       help='Data directory')
+    parser.add_argument('--currency-pair', type=str, default='EURUSD',
+                       help='Currency pair to optimize')
+    
+    # Output
+    parser.add_argument('--output-dir', type=str, default='./output/hyperparameter_tuning',
+                       help='Output directory')
+    parser.add_argument('--no-visualization', action='store_true',
+                       help='Skip visualization generation')
+    parser.add_argument('--no-report', action='store_true',
+                       help='Skip report generation')
     
     args = parser.parse_args()
     
-    # Initialize enhanced forex prediction system
-    logger.info("🚀 Initializing Enhanced Forex Prediction System for optimization")
+    # Create configurations
+    opt_config = OptimizationConfig(
+        method=args.method,
+        n_trials=args.n_trials,
+        timeout=args.timeout,
+        cv_metric=args.metric,
+        sampler=args.sampler,
+        pruner=args.pruner,
+        n_jobs=args.n_jobs,
+        use_parallel=not args.no_parallel
+    )
     
-    try:
-        # Load data and prepare for optimization
-        forex_pred = EnhancedForexPrediction()
-        forex_pred.load_data()
-        forex_pred.preprocess_data()
-        forex_pred.calculate_enhanced_features()
-        forex_pred.select_features()
-        
-        logger.info("✅ Data preparation completed for optimization")
-        
-        # Initialize optimizer
-        optimizer = EnhancedHyperparameterOptimizer()
-        
-        # Set up models and pairs
-        if args.model == 'all':
-            model_types = ['enhanced_cnn_lstm', 'advanced_tft', 'enhanced_xgboost']
-        else:
-            model_types = [args.model]
-        
-        if args.pair == 'all':
-            pairs = ['EURUSD', 'GBPUSD', 'USDJPY']
-            if forex_pred.config.get('use_bagging', True):
-                pairs.append('Bagging')
-        else:
-            pairs = [args.pair]
-        
-        if args.method == 'all':
-            methods = ['bayesian_tpe', 'multi_objective']
-        else:
-            methods = [args.method]
-        
-        # Run comprehensive optimization
-        results = optimizer.run_comprehensive_optimization(
-            forex_pred, 
-            pairs=pairs, 
-            models=model_types, 
-            n_trials=args.trials, 
-            methods=methods
-        )
-        
-        # Print summary
-        print("\n" + "="*80)
-        print("🎯 ENHANCED HYPERPARAMETER OPTIMIZATION COMPLETED!")
-        print("="*80)
-        
-        total_optimizations = sum(len(method_results) * len(model_results) 
-                                for method_results in results.values() 
-                                for model_results in method_results.values())
-        
-        print(f"📊 Total optimizations completed: {total_optimizations}")
-        print(f"🔬 Optimization methods used: {', '.join(methods)}")
-        print(f"🤖 Models optimized: {', '.join(model_types)}")
-        print(f"💱 Currency pairs: {', '.join(pairs)}")
-        print(f"⚙️ Trials per optimization: {args.trials}")
-        
-        # Show best results for each method
-        for method, method_results in results.items():
-            print(f"\n🏆 Best results for {method}:")
-            best_overall = None
-            best_score = -float('inf')
-            
-            for model_type, model_results in method_results.items():
-                for pair, pair_results in model_results.items():
-                    score = pair_results.get('best_value')
-                    if score is not None and score > best_score:
-                        best_score = score
-                        best_overall = f"{pair}_{model_type}"
-            
-            if best_overall:
-                print(f"  🥇 {best_overall}: {best_score:.4f}")
-        
-        print("="*80)
-        
-    except Exception as e:
-        logger.error(f"❌ Error in enhanced hyperparameter optimization: {e}", exc_info=True)
-        print(f"❌ Error: {e}")
-        return 1
+    trading_config = TradingConfig(
+        data_dir=args.data_dir,
+        output_dir=args.output_dir
+    )
+    
+    # Load and prepare data
+    logger.info("Loading data...")
+    predictor = EnhancedForexPredictor(trading_config)
+    raw_data = predictor.load_data(args.currency_pair)
+    data_splits = predictor.prepare_data(raw_data)
+    
+    # Feature engineering
+    logger.info("Engineering features...")
+    feature_engineer = AdvancedFeatureEngineer(trading_config)
+    train_features = feature_engineer.engineer_features(data_splits['train'])
+    val_features = feature_engineer.engineer_features(data_splits['validation'])
+    
+    # Create sequences
+    X_train, y_train = predictor.create_sequences(train_features)
+    X_val, y_val = predictor.create_sequences(val_features)
+    
+    logger.info(f"Data shapes - Train: {X_train.shape}, Validation: {X_val.shape}")
+    
+    # Run hyperparameter tuning
+    tuner = HyperparameterTuner(opt_config, trading_config)
+    results = tuner.tune_all_models(X_train, y_train, X_val, y_val, args.models)
+    
+    # Save results
+    tuner.save_results(args.output_dir)
+    
+    # Generate visualizations
+    if not args.no_visualization:
+        tuner.visualize_results(args.output_dir)
+    
+    # Generate report
+    if not args.no_report:
+        report_path = tuner.generate_report(args.output_dir)
+        logger.info(f"Report generated: {report_path}")
+    
+    logger.info("Hyperparameter tuning completed!")
     
     return 0
 
+
 if __name__ == "__main__":
-    exit(main())
+    main()

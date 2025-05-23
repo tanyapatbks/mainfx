@@ -1,0 +1,204 @@
+2025-05-23 19:46:30,412 - __main__ - INFO - Validating data files...
+2025-05-23 19:46:30,412 - __main__ - ERROR - Data file not found: data/EURUSD_1H.csv
+2025-05-23 19:46:30,412 - __main__ - ERROR - Data validation failed. Exiting.
+2025-05-23 19:47:19,571 - __main__ - INFO - Validating data files...
+2025-05-23 19:47:19,578 - __main__ - INFO - Data validation successful
+2025-05-23 19:47:19,578 - __main__ - INFO - 
+============================================================
+2025-05-23 19:47:19,578 - __main__ - INFO - CONFIGURATION SUMMARY
+2025-05-23 19:47:19,578 - __main__ - INFO - ============================================================
+2025-05-23 19:47:19,578 - __main__ - INFO - Currency Pairs: ['EURUSD', 'GBPUSD', 'USDJPY']
+2025-05-23 19:47:19,578 - __main__ - INFO - Training Period: 2020-01-01 to 2021-08-31
+2025-05-23 19:47:19,578 - __main__ - INFO - Validation Period: 2021-09-01 to 2022-04-30
+2025-05-23 19:47:19,578 - __main__ - INFO - Test Period: 2022-05-01 to 2022-12-31
+2025-05-23 19:47:19,578 - __main__ - INFO - Features: Elliott Wave=True, Fibonacci=True, Regime Detection=True
+2025-05-23 19:47:19,578 - __main__ - INFO - Ensemble Method: dynamic
+2025-05-23 19:47:19,578 - __main__ - INFO - Risk Management: Kelly=True, Dynamic Stops=True
+2025-05-23 19:47:19,578 - __main__ - INFO - ============================================================
+
+2025-05-23 19:47:19,578 - __main__ - INFO - 
+============================================================
+2025-05-23 19:47:19,578 - __main__ - INFO - Processing EURUSD
+2025-05-23 19:47:19,578 - __main__ - INFO - ============================================================
+2025-05-23 19:47:19,578 - forex_prediction - INFO - Starting complete pipeline for EURUSD
+2025-05-23 19:47:19,578 - forex_prediction - INFO - Loading data for EURUSD...
+2025-05-23 19:47:19,617 - forex_prediction - INFO - Loaded 18730 data points for EURUSD
+2025-05-23 19:47:19,618 - forex_prediction - INFO - train: 10358 samples (2020-01-01 22:00:00 to 2021-08-31 00:00:00)
+2025-05-23 19:47:19,618 - forex_prediction - INFO - validation: 4149 samples (2021-09-01 00:00:00 to 2022-04-29 20:00:00)
+2025-05-23 19:47:19,618 - forex_prediction - INFO - test: 4200 samples (2022-05-01 21:00:00 to 2022-12-30 21:00:00)
+2025-05-23 19:47:19,618 - forex_prediction - INFO - Engineering features...
+2025-05-23 19:47:19,618 - forex_prediction - INFO - Starting advanced feature engineering...
+2025-05-23 19:47:19,627 - __main__ - ERROR - Error processing EURUSD: input array type is not double
+2025-05-23 19:47:19,629 - __main__ - INFO - 
+============================================================
+2025-05-23 19:47:19,629 - __main__ - INFO - Processing GBPUSD
+2025-05-23 19:47:19,629 - __main__ - INFO - ============================================================
+2025-05-23 19:47:19,629 - forex_prediction - INFO - Starting complete pipeline for GBPUSD
+2025-05-23 19:47:19,629 - forex_prediction - INFO - Loading data for GBPUSD...
+2025-05-23 19:47:19,647 - forex_prediction - INFO - Loaded 18729 data points for GBPUSD
+2025-05-23 19:47:19,647 - forex_prediction - INFO - train: 10357 samples (2020-01-01 22:00:00 to 2021-08-31 00:00:00)
+2025-05-23 19:47:19,647 - forex_prediction - INFO - validation: 4149 samples (2021-09-01 00:00:00 to 2022-04-29 20:00:00)
+2025-05-23 19:47:19,647 - forex_prediction - INFO - test: 4200 samples (2022-05-01 21:00:00 to 2022-12-30 21:00:00)
+2025-05-23 19:47:19,647 - forex_prediction - INFO - Engineering features...
+2025-05-23 19:47:19,648 - forex_prediction - INFO - Starting advanced feature engineering...
+2025-05-23 19:47:19,654 - __main__ - ERROR - Error processing GBPUSD: input array type is not double
+2025-05-23 19:47:19,655 - __main__ - INFO - 
+============================================================
+2025-05-23 19:47:19,655 - __main__ - INFO - Processing USDJPY
+2025-05-23 19:47:19,655 - __main__ - INFO - ============================================================
+2025-05-23 19:47:19,655 - forex_prediction - INFO - Starting complete pipeline for USDJPY
+2025-05-23 19:47:19,655 - forex_prediction - INFO - Loading data for USDJPY...
+2025-05-23 19:47:19,676 - forex_prediction - INFO - Loaded 18730 data points for USDJPY
+2025-05-23 19:47:19,676 - forex_prediction - INFO - train: 10358 samples (2020-01-01 22:00:00 to 2021-08-31 00:00:00)
+2025-05-23 19:47:19,676 - forex_prediction - INFO - validation: 4149 samples (2021-09-01 00:00:00 to 2022-04-29 20:00:00)
+2025-05-23 19:47:19,676 - forex_prediction - INFO - test: 4200 samples (2022-05-01 21:00:00 to 2022-12-30 21:00:00)
+2025-05-23 19:47:19,676 - forex_prediction - INFO - Engineering features...
+2025-05-23 19:47:19,676 - forex_prediction - INFO - Starting advanced feature engineering...
+2025-05-23 19:47:19,683 - __main__ - ERROR - Error processing USDJPY: input array type is not double
+2025-05-23 19:47:19,684 - __main__ - INFO - Results saved to: output/complete_results_20250523_194719.json
+2025-05-23 19:47:19,684 - __main__ - INFO - Generating comprehensive report...
+2025-05-23 19:47:19,684 - __main__ - INFO - Report saved to: output/report/thesis_report_20250523_194719.html
+2025-05-23 19:47:19,684 - __main__ - INFO - Generating summary plots...
+2025-05-23 19:47:19,684 - __main__ - INFO - Report generated: output/report/thesis_report_20250523_194719.html
+2025-05-23 19:47:19,684 - __main__ - INFO - 
+============================================================
+2025-05-23 19:47:19,684 - __main__ - INFO - EXECUTION SUMMARY
+2025-05-23 19:47:19,684 - __main__ - INFO - ============================================================
+2025-05-23 19:47:19,684 - __main__ - INFO - Total execution time: 0.00 minutes
+2025-05-23 19:47:19,684 - __main__ - INFO - 
+Pipeline execution completed successfully!
+2025-05-23 19:47:19,684 - __main__ - INFO - ============================================================
+2025-05-24 00:07:06,639 - __main__ - INFO - Validating data files...
+2025-05-24 00:07:06,646 - __main__ - INFO - Data validation successful
+2025-05-24 00:07:06,646 - __main__ - INFO - 
+============================================================
+2025-05-24 00:07:06,646 - __main__ - INFO - CONFIGURATION SUMMARY
+2025-05-24 00:07:06,646 - __main__ - INFO - ============================================================
+2025-05-24 00:07:06,646 - __main__ - INFO - Currency Pairs: ['EURUSD', 'GBPUSD', 'USDJPY']
+2025-05-24 00:07:06,646 - __main__ - INFO - Training Period: 2020-01-01 to 2021-08-31
+2025-05-24 00:07:06,646 - __main__ - INFO - Validation Period: 2021-09-01 to 2022-04-30
+2025-05-24 00:07:06,646 - __main__ - INFO - Test Period: 2022-05-01 to 2022-12-31
+2025-05-24 00:07:06,646 - __main__ - INFO - Features: Elliott Wave=True, Fibonacci=True, Regime Detection=True
+2025-05-24 00:07:06,646 - __main__ - INFO - Ensemble Method: dynamic
+2025-05-24 00:07:06,646 - __main__ - INFO - Risk Management: Kelly=True, Dynamic Stops=True
+2025-05-24 00:07:06,646 - __main__ - INFO - ============================================================
+
+2025-05-24 00:07:06,646 - __main__ - INFO - 
+============================================================
+2025-05-24 00:07:06,646 - __main__ - INFO - Processing EURUSD
+2025-05-24 00:07:06,646 - __main__ - INFO - ============================================================
+2025-05-24 00:07:06,646 - forex_prediction - INFO - Starting complete pipeline for EURUSD
+2025-05-24 00:07:06,646 - forex_prediction - INFO - Loading data for EURUSD...
+2025-05-24 00:07:06,671 - forex_prediction - INFO - Loaded 18730 data points for EURUSD
+2025-05-24 00:07:06,672 - forex_prediction - INFO - train: 10358 samples (2020-01-01 22:00:00 to 2021-08-31 00:00:00)
+2025-05-24 00:07:06,672 - forex_prediction - INFO - validation: 4149 samples (2021-09-01 00:00:00 to 2022-04-29 20:00:00)
+2025-05-24 00:07:06,672 - forex_prediction - INFO - test: 4200 samples (2022-05-01 21:00:00 to 2022-12-30 21:00:00)
+2025-05-24 00:07:06,672 - forex_prediction - INFO - Engineering features...
+2025-05-24 00:07:06,672 - forex_prediction - INFO - Starting advanced feature engineering...
+2025-05-24 00:07:06,681 - __main__ - ERROR - Error processing EURUSD: input array type is not double
+2025-05-24 00:07:06,683 - __main__ - INFO - 
+============================================================
+2025-05-24 00:07:06,683 - __main__ - INFO - Processing GBPUSD
+2025-05-24 00:07:06,683 - __main__ - INFO - ============================================================
+2025-05-24 00:07:06,683 - forex_prediction - INFO - Starting complete pipeline for GBPUSD
+2025-05-24 00:07:06,683 - forex_prediction - INFO - Loading data for GBPUSD...
+2025-05-24 00:07:06,701 - forex_prediction - INFO - Loaded 18729 data points for GBPUSD
+2025-05-24 00:07:06,701 - forex_prediction - INFO - train: 10357 samples (2020-01-01 22:00:00 to 2021-08-31 00:00:00)
+2025-05-24 00:07:06,702 - forex_prediction - INFO - validation: 4149 samples (2021-09-01 00:00:00 to 2022-04-29 20:00:00)
+2025-05-24 00:07:06,702 - forex_prediction - INFO - test: 4200 samples (2022-05-01 21:00:00 to 2022-12-30 21:00:00)
+2025-05-24 00:07:06,702 - forex_prediction - INFO - Engineering features...
+2025-05-24 00:07:06,702 - forex_prediction - INFO - Starting advanced feature engineering...
+2025-05-24 00:07:06,708 - __main__ - ERROR - Error processing GBPUSD: input array type is not double
+2025-05-24 00:07:06,709 - __main__ - INFO - 
+============================================================
+2025-05-24 00:07:06,709 - __main__ - INFO - Processing USDJPY
+2025-05-24 00:07:06,709 - __main__ - INFO - ============================================================
+2025-05-24 00:07:06,709 - forex_prediction - INFO - Starting complete pipeline for USDJPY
+2025-05-24 00:07:06,709 - forex_prediction - INFO - Loading data for USDJPY...
+2025-05-24 00:07:06,728 - forex_prediction - INFO - Loaded 18730 data points for USDJPY
+2025-05-24 00:07:06,728 - forex_prediction - INFO - train: 10358 samples (2020-01-01 22:00:00 to 2021-08-31 00:00:00)
+2025-05-24 00:07:06,728 - forex_prediction - INFO - validation: 4149 samples (2021-09-01 00:00:00 to 2022-04-29 20:00:00)
+2025-05-24 00:07:06,728 - forex_prediction - INFO - test: 4200 samples (2022-05-01 21:00:00 to 2022-12-30 21:00:00)
+2025-05-24 00:07:06,728 - forex_prediction - INFO - Engineering features...
+2025-05-24 00:07:06,728 - forex_prediction - INFO - Starting advanced feature engineering...
+2025-05-24 00:07:06,735 - __main__ - ERROR - Error processing USDJPY: input array type is not double
+2025-05-24 00:07:06,736 - __main__ - INFO - Results saved to: output/complete_results_20250524_000706.json
+2025-05-24 00:07:06,736 - __main__ - INFO - Generating comprehensive report...
+2025-05-24 00:07:06,736 - __main__ - INFO - Report saved to: output/report/thesis_report_20250524_000706.html
+2025-05-24 00:07:06,736 - __main__ - INFO - Generating summary plots...
+2025-05-24 00:07:06,736 - __main__ - INFO - Report generated: output/report/thesis_report_20250524_000706.html
+2025-05-24 00:07:06,736 - __main__ - INFO - 
+============================================================
+2025-05-24 00:07:06,736 - __main__ - INFO - EXECUTION SUMMARY
+2025-05-24 00:07:06,736 - __main__ - INFO - ============================================================
+2025-05-24 00:07:06,736 - __main__ - INFO - Total execution time: 0.00 minutes
+2025-05-24 00:07:06,736 - __main__ - INFO - 
+Pipeline execution completed successfully!
+2025-05-24 00:07:06,737 - __main__ - INFO - ============================================================
+2025-05-24 00:08:31,382 - __main__ - INFO - Validating data files...
+2025-05-24 00:08:31,388 - __main__ - INFO - Data validation successful
+2025-05-24 00:08:31,388 - __main__ - INFO - 
+============================================================
+2025-05-24 00:08:31,388 - __main__ - INFO - CONFIGURATION SUMMARY
+2025-05-24 00:08:31,388 - __main__ - INFO - ============================================================
+2025-05-24 00:08:31,388 - __main__ - INFO - Currency Pairs: ['EURUSD', 'GBPUSD', 'USDJPY']
+2025-05-24 00:08:31,388 - __main__ - INFO - Training Period: 2020-01-01 to 2021-08-31
+2025-05-24 00:08:31,388 - __main__ - INFO - Validation Period: 2021-09-01 to 2022-04-30
+2025-05-24 00:08:31,388 - __main__ - INFO - Test Period: 2022-05-01 to 2022-12-31
+2025-05-24 00:08:31,388 - __main__ - INFO - Features: Elliott Wave=True, Fibonacci=True, Regime Detection=True
+2025-05-24 00:08:31,388 - __main__ - INFO - Ensemble Method: dynamic
+2025-05-24 00:08:31,388 - __main__ - INFO - Risk Management: Kelly=True, Dynamic Stops=True
+2025-05-24 00:08:31,388 - __main__ - INFO - ============================================================
+
+2025-05-24 00:08:31,388 - __main__ - INFO - 
+============================================================
+2025-05-24 00:08:31,388 - __main__ - INFO - Processing EURUSD
+2025-05-24 00:08:31,388 - __main__ - INFO - ============================================================
+2025-05-24 00:08:31,389 - forex_prediction - INFO - Starting complete pipeline for EURUSD
+2025-05-24 00:08:31,389 - forex_prediction - INFO - Loading data for EURUSD...
+2025-05-24 00:08:31,409 - forex_prediction - INFO - Loaded 18730 data points for EURUSD
+2025-05-24 00:08:31,409 - forex_prediction - INFO - train: 10358 samples (2020-01-01 22:00:00 to 2021-08-31 00:00:00)
+2025-05-24 00:08:31,409 - forex_prediction - INFO - validation: 4149 samples (2021-09-01 00:00:00 to 2022-04-29 20:00:00)
+2025-05-24 00:08:31,409 - forex_prediction - INFO - test: 4200 samples (2022-05-01 21:00:00 to 2022-12-30 21:00:00)
+2025-05-24 00:08:31,410 - forex_prediction - INFO - Engineering features...
+2025-05-24 00:08:31,410 - forex_prediction - INFO - Starting advanced feature engineering...
+2025-05-24 00:08:31,419 - __main__ - ERROR - Error processing EURUSD: input array type is not double
+2025-05-24 00:08:31,420 - __main__ - INFO - 
+============================================================
+2025-05-24 00:08:31,420 - __main__ - INFO - Processing GBPUSD
+2025-05-24 00:08:31,420 - __main__ - INFO - ============================================================
+2025-05-24 00:08:31,420 - forex_prediction - INFO - Starting complete pipeline for GBPUSD
+2025-05-24 00:08:31,420 - forex_prediction - INFO - Loading data for GBPUSD...
+2025-05-24 00:08:31,439 - forex_prediction - INFO - Loaded 18729 data points for GBPUSD
+2025-05-24 00:08:31,439 - forex_prediction - INFO - train: 10357 samples (2020-01-01 22:00:00 to 2021-08-31 00:00:00)
+2025-05-24 00:08:31,440 - forex_prediction - INFO - validation: 4149 samples (2021-09-01 00:00:00 to 2022-04-29 20:00:00)
+2025-05-24 00:08:31,440 - forex_prediction - INFO - test: 4200 samples (2022-05-01 21:00:00 to 2022-12-30 21:00:00)
+2025-05-24 00:08:31,440 - forex_prediction - INFO - Engineering features...
+2025-05-24 00:08:31,440 - forex_prediction - INFO - Starting advanced feature engineering...
+2025-05-24 00:08:31,446 - __main__ - ERROR - Error processing GBPUSD: input array type is not double
+2025-05-24 00:08:31,447 - __main__ - INFO - 
+============================================================
+2025-05-24 00:08:31,447 - __main__ - INFO - Processing USDJPY
+2025-05-24 00:08:31,447 - __main__ - INFO - ============================================================
+2025-05-24 00:08:31,447 - forex_prediction - INFO - Starting complete pipeline for USDJPY
+2025-05-24 00:08:31,447 - forex_prediction - INFO - Loading data for USDJPY...
+2025-05-24 00:08:31,464 - forex_prediction - INFO - Loaded 18730 data points for USDJPY
+2025-05-24 00:08:31,465 - forex_prediction - INFO - train: 10358 samples (2020-01-01 22:00:00 to 2021-08-31 00:00:00)
+2025-05-24 00:08:31,465 - forex_prediction - INFO - validation: 4149 samples (2021-09-01 00:00:00 to 2022-04-29 20:00:00)
+2025-05-24 00:08:31,465 - forex_prediction - INFO - test: 4200 samples (2022-05-01 21:00:00 to 2022-12-30 21:00:00)
+2025-05-24 00:08:31,465 - forex_prediction - INFO - Engineering features...
+2025-05-24 00:08:31,465 - forex_prediction - INFO - Starting advanced feature engineering...
+2025-05-24 00:08:31,472 - __main__ - ERROR - Error processing USDJPY: input array type is not double
+2025-05-24 00:08:31,472 - __main__ - INFO - Results saved to: output/complete_results_20250524_000831.json
+2025-05-24 00:08:31,472 - __main__ - INFO - Generating comprehensive report...
+2025-05-24 00:08:31,473 - __main__ - INFO - Report saved to: output/report/thesis_report_20250524_000831.html
+2025-05-24 00:08:31,473 - __main__ - INFO - Generating summary plots...
+2025-05-24 00:08:31,473 - __main__ - INFO - Report generated: output/report/thesis_report_20250524_000831.html
+2025-05-24 00:08:31,473 - __main__ - INFO - 
+============================================================
+2025-05-24 00:08:31,473 - __main__ - INFO - EXECUTION SUMMARY
+2025-05-24 00:08:31,473 - __main__ - INFO - ============================================================
+2025-05-24 00:08:31,473 - __main__ - INFO - Total execution time: 0.00 minutes
+2025-05-24 00:08:31,473 - __main__ - INFO - 
+Pipeline execution completed successfully!
+2025-05-24 00:08:31,473 - __main__ - INFO - ============================================================
