@@ -202,3 +202,45 @@ Pipeline execution completed successfully!
 2025-05-24 00:08:31,473 - __main__ - INFO - 
 Pipeline execution completed successfully!
 2025-05-24 00:08:31,473 - __main__ - INFO - ============================================================
+2025-05-24 05:50:40,264 - __main__ - INFO - Validating data files...
+2025-05-24 05:50:40,267 - __main__ - INFO - Data validation successful
+2025-05-24 05:50:40,267 - __main__ - INFO - 
+============================================================
+2025-05-24 05:50:40,267 - __main__ - INFO - CONFIGURATION SUMMARY
+2025-05-24 05:50:40,267 - __main__ - INFO - ============================================================
+2025-05-24 05:50:40,267 - __main__ - INFO - Currency Pairs: ['EURUSD']
+2025-05-24 05:50:40,267 - __main__ - INFO - Training Period: 2020-01-01 to 2021-08-31
+2025-05-24 05:50:40,267 - __main__ - INFO - Validation Period: 2021-09-01 to 2022-04-30
+2025-05-24 05:50:40,267 - __main__ - INFO - Test Period: 2022-05-01 to 2022-12-31
+2025-05-24 05:50:40,268 - __main__ - INFO - Features: Elliott Wave=True, Fibonacci=True, Regime Detection=True
+2025-05-24 05:50:40,268 - __main__ - INFO - Ensemble Method: dynamic
+2025-05-24 05:50:40,268 - __main__ - INFO - Risk Management: Kelly=True, Dynamic Stops=True
+2025-05-24 05:50:40,268 - __main__ - INFO - ============================================================
+
+2025-05-24 05:50:40,268 - __main__ - INFO - 
+============================================================
+2025-05-24 05:50:40,268 - __main__ - INFO - Processing EURUSD
+2025-05-24 05:50:40,268 - __main__ - INFO - ============================================================
+2025-05-24 05:50:40,268 - forex_prediction - INFO - Starting complete pipeline for EURUSD
+2025-05-24 05:50:40,268 - forex_prediction - INFO - Loading data for EURUSD...
+2025-05-24 05:50:40,288 - forex_prediction - INFO - Loaded 18730 data points for EURUSD
+2025-05-24 05:50:40,289 - forex_prediction - INFO - train: 10358 samples (2020-01-01 22:00:00 to 2021-08-31 00:00:00)
+2025-05-24 05:50:40,289 - forex_prediction - INFO - validation: 4149 samples (2021-09-01 00:00:00 to 2022-04-29 20:00:00)
+2025-05-24 05:50:40,289 - forex_prediction - INFO - test: 4200 samples (2022-05-01 21:00:00 to 2022-12-30 21:00:00)
+2025-05-24 05:50:40,289 - forex_prediction - INFO - Engineering features...
+2025-05-24 05:50:40,289 - forex_prediction - INFO - Starting advanced feature engineering...
+2025-05-24 05:50:40,300 - forex_prediction - INFO - Adding Elliott Wave features...
+2025-05-24 05:50:40,304 - __main__ - ERROR - Error processing EURUSD: 'bool' object has no attribute 'astype'
+2025-05-24 05:50:40,306 - __main__ - INFO - Results saved to: output/complete_results_20250524_055040.json
+2025-05-24 05:50:40,306 - __main__ - INFO - Generating comprehensive report...
+2025-05-24 05:50:40,306 - __main__ - INFO - Report saved to: output/report/thesis_report_20250524_055040.html
+2025-05-24 05:50:40,306 - __main__ - INFO - Generating summary plots...
+2025-05-24 05:50:40,306 - __main__ - INFO - Report generated: output/report/thesis_report_20250524_055040.html
+2025-05-24 05:50:40,306 - __main__ - INFO - 
+============================================================
+2025-05-24 05:50:40,306 - __main__ - INFO - EXECUTION SUMMARY
+2025-05-24 05:50:40,306 - __main__ - INFO - ============================================================
+2025-05-24 05:50:40,306 - __main__ - INFO - Total execution time: 0.00 minutes
+2025-05-24 05:50:40,306 - __main__ - INFO - 
+Pipeline execution completed successfully!
+2025-05-24 05:50:40,306 - __main__ - INFO - ============================================================
